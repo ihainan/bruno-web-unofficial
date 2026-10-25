@@ -49,6 +49,8 @@ docker run -d -p 8484:8484 -v bruno-data:/data \
 | `BRUNO_WEB_BLOCK_METADATA` | `true` | 拒绝连接 169.254.0.0/16 等云元数据地址（尽力而为，见下） |
 | `BRUNO_WEB_SAMPLE_COLLECTION` | `true` | 首次启动导入示例集合 |
 | `BRUNO_WEB_SESSION_TTL_HOURS` | `12` | 登录有效期（有操作就顺延） |
+| `BRUNO_WEB_MAX_RESULT_MB` / `BRUNO_WEB_MAX_MESSAGE_MB` | `512` / `64` | 服务器发往页面、页面发往服务器的单条消息上限 |
+| `BRUNO_WEB_DEBUG_IPC` | `false` | 在浏览器控制台打印每条通信消息（排障用） |
 
 所有 `BRUNO_WEB_*` 变量读入后会从进程环境中删除，集合脚本（`bru.getProcessEnv()`）读不到它们。
 
@@ -66,7 +68,10 @@ docker run -d -p 8484:8484 -v bruno-data:/data \
 | 选文件/文件夹 | 网页里的服务器文件浏览器；可从本机上传 |
 | 导出 | 可选「下载到本机」或「保存到服务器」 |
 | OAuth2 登录 | 在弹窗里登录；回调地址设为 `<对外地址>/bruno-web/oauth2/callback` 可自动完成（含隐式授权），否则把回跳地址粘贴回 Bruno。无法为授权页注入自定义请求头，也不能按 Bruno 设置忽略证书错误 |
-| Bruno Apps | 运行在不透明源的沙箱 iframe 里，没有 localStorage 等存储，所有 App 的 origin 都是 `null` |
+| Bruno Apps | 运行在不透明源的沙箱 iframe 里（彼此隔离，也拿不到 Bruno 的登录状态），没有 localStorage 等存储，`location.origin` 是 `null`；只允许写剪贴板，读剪贴板、定位、摄像头等一律拒绝 |
+| 导入引用了其他文件的 WSDL | 浏览器只交出所选文件本身，被引用的 `.xsd` 找不到，所以这类多文件 WSDL 无法从本机导入（单文件 WSDL 正常） |
+| 大响应 | 支持；响应要经网络传到浏览器，50 MB 的响应约需传输 90 MB（上限 `BRUNO_WEB_MAX_RESULT_MB`，默认 512） |
+| 关闭标签页 | 有未保存的请求时浏览器会询问是否离开（桌面版是退出时询问） |
 | 多个标签页 | 同一时刻只有一个标签页可用，新标签页会接管 |
 | 脚本开发者模式、终端、npm 安装 | 默认关闭 |
 
