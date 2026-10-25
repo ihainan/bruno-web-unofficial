@@ -51,5 +51,6 @@ for (const file of walk(mainSrc, [])) {
 found.servedByDesktop = served;
 
 const out = Object.fromEntries(Object.entries(found).map(([k, v]) => [k, [...v].sort()]));
+fs.mkdirSync(path.join(repoRoot, 'web'), { recursive: true });
 fs.writeFileSync(path.join(repoRoot, 'web', 'channels.json'), JSON.stringify(out, null, 2) + '\n');
 console.log(`renderer: invoke ${out.invoke.length}, send ${out.send.length}, on ${out.on.length}; desktop main serves ${out.servedByDesktop.length} -> web/channels.json`);

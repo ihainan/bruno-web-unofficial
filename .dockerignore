@@ -1,0 +1,6 @@
+upstream/
+node_modules/
+data/
+test-results/
+*.log
+.git/
