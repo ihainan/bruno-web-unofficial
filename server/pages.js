@@ -82,9 +82,12 @@ const GUEST_BOOTSTRAP = `<script>(function () {
     Promise.resolve().then(function () {
       return (0, eval)(data.code);
     }).then(function (value) {
-      var safe;
-      try { safe = JSON.parse(JSON.stringify(value === undefined ? null : value)); } catch (e) { safe = null; }
-      post({ __brunoWeb: 'exec-result', id: data.id, ok: true, value: safe });
+      // Structured clone, as Electron's executeJavaScript returns values.
+      try {
+        parentWin.postMessage({ __brunoWeb: 'exec-result', id: data.id, ok: true, value: value }, '*');
+      } catch (e) {
+        post({ __brunoWeb: 'exec-result', id: data.id, ok: false, error: 'Result could not be cloned: ' + (e && e.message) });
+      }
     }, function (err) {
       post({ __brunoWeb: 'exec-result', id: data.id, ok: false, error: String(err && err.message || err) });
     });

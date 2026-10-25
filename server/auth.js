@@ -18,9 +18,13 @@ const scryptHash = (password, salt = crypto.randomBytes(16)) => {
   return `scrypt$${salt.toString('hex')}$${hash.toString('hex')}`;
 };
 
+const HASH_FORMAT = /^scrypt\$[0-9a-f]{16,}\$[0-9a-f]{64}$/i;
+
 const verifyPassword = (password, stored) => {
-  const [scheme, saltHex, hashHex] = String(stored).split('$');
-  if (scheme !== 'scrypt' || !saltHex || !hashHex) return false;
+  // Buffer.from(x, 'hex') silently yields an empty buffer for non-hex input,
+  // and two empty buffers compare equal: reject anything not well-formed.
+  if (!HASH_FORMAT.test(String(stored))) return false;
+  const [, saltHex, hashHex] = String(stored).split('$');
   const expected = Buffer.from(hashHex, 'hex');
   const actual = crypto.scryptSync(String(password), Buffer.from(saltHex, 'hex'), expected.length);
   return crypto.timingSafeEqual(expected, actual);
@@ -38,7 +42,12 @@ const parseCookies = (header) => {
     const i = part.indexOf('=');
     if (i < 0) continue;
     const k = part.slice(0, i).trim();
-    if (k) out[k] = decodeURIComponent(part.slice(i + 1).trim());
+    if (!k) continue;
+    try {
+      out[k] = decodeURIComponent(part.slice(i + 1).trim());
+    } catch (e) {
+      // Malformed escapes come from clients we do not control; ignore the cookie.
+    }
   }
   return out;
 };
@@ -56,6 +65,9 @@ class Auth {
     }
     if (this.mode === 'password') {
       if (config.passwordHash) {
+        if (!HASH_FORMAT.test(config.passwordHash)) {
+          throw new Error('BRUNO_WEB_PASSWORD_HASH must look like scrypt$<salt hex>$<64 hex digits>');
+        }
         this.storedHash = config.passwordHash;
       } else if (config.password) {
         this.storedHash = scryptHash(config.password);
@@ -134,8 +146,20 @@ class Auth {
     }
     this.failures.delete(ip);
     const token = crypto.randomBytes(32).toString('base64url');
-    this.sessions.set(token, { user: 'admin', expiresAt: Date.now() + config.sessionTtlMs });
+    this.sessions.set(token, { user: 'admin', expiresAt: Date.now() + config.sessionTtlMs, cookieIssuedAt: Date.now() });
     return { ok: true, cookie: this.cookieHeader(req, token, Math.floor(config.sessionTtlMs / 1000)) };
+  }
+
+  // The browser forgets the cookie at its Max-Age even when activity has kept
+  // the session alive on the server; hand out a fresh one now and then.
+  refreshCookie(req) {
+    if (this.mode !== 'password') return null;
+    const token = parseCookies(req.headers.cookie)[COOKIE];
+    const session = token && this.sessions.get(token);
+    if (!session || session.expiresAt < Date.now()) return null;
+    if (session.cookieIssuedAt && Date.now() - session.cookieIssuedAt < 10 * 60 * 1000) return null;
+    session.cookieIssuedAt = Date.now();
+    return this.cookieHeader(req, token, Math.floor(config.sessionTtlMs / 1000));
   }
 
   logout(req) {
@@ -162,9 +186,11 @@ class Auth {
     } catch (e) {
       return false;
     }
+    if (!['http:', 'https:'].includes(parsed.protocol)) return false;
     if (config.publicUrl) return parsed.origin === new URL(config.publicUrl).origin;
     const host = (config.trustProxy && req.headers['x-forwarded-host']) || req.headers.host;
-    if (parsed.host !== host) return false;
+    const proto = (config.trustProxy && req.headers['x-forwarded-proto']) || (req.socket && req.socket.encrypted ? 'https' : 'http');
+    if (parsed.host !== host || parsed.protocol !== `${String(proto).split(',')[0].trim()}:`) return false;
     // Without a login, a DNS-rebinding page could otherwise pass the same-origin
     // test under its own host name.
     if (this.mode === 'none' && !isLoopback(parsed.hostname.replace(/^\[|\]$/g, ''))) return false;

@@ -148,7 +148,8 @@ const createFsRouter = ({ policy, downloads }) => {
     const dest = path.join(dir, safeName(req.query.name));
     await policy.resolveInsideRoots(dest, { forWrite: true });
     if (fs.existsSync(dest) && req.query.overwrite !== '1') throw httpError(409, 'A file with that name already exists');
-    if (fs.existsSync(dest)) await fs.promises.rm(dest);
+    // writeBody() fills a temporary file and renames it over dest, so a failed
+    // upload leaves an existing file untouched.
     const size = await writeBody(req, dest);
     res.json({ path: dest, size });
   }));
@@ -157,6 +158,12 @@ const createFsRouter = ({ policy, downloads }) => {
     if (!/^[0-9a-f-]{36}$/.test(req.params.id)) throw httpError(400, 'Invalid upload id');
     const dir = path.join(config.uploadsDir, req.params.id);
     await fs.promises.mkdir(dir, { recursive: true });
+    // The folder must really be ours, not a link to somewhere else.
+    const realDir = await fs.promises.realpath(dir);
+    const realRoot = await fs.promises.realpath(config.uploadsDir);
+    if (path.dirname(realDir) !== realRoot || (await fs.promises.lstat(dir)).isSymbolicLink()) {
+      throw httpError(400, 'Invalid upload folder');
+    }
     const dest = path.join(dir, safeName(req.params.name));
     const size = await writeBody(req, dest);
     res.json({ path: dest, size });
@@ -174,4 +181,22 @@ const createFsRouter = ({ policy, downloads }) => {
   return router;
 };
 
-module.exports = { createFsRouter, Downloads };
+// Temporary download folders left behind by a failed export or a restart.
+// Exports offered from the user's own folders live elsewhere and are not touched.
+const sweepDownloadDirs = async (maxAgeMs = 2 * 3600 * 1000) => {
+  let names = [];
+  try {
+    names = await fs.promises.readdir(config.downloadsDir);
+  } catch (e) {
+    return;
+  }
+  const cutoff = Date.now() - maxAgeMs;
+  for (const name of names) {
+    const dir = path.join(config.downloadsDir, name);
+    try {
+      if ((await fs.promises.lstat(dir)).mtimeMs < cutoff) await fs.promises.rm(dir, { recursive: true, force: true });
+    } catch (e) {}
+  }
+};
+
+module.exports = { createFsRouter, Downloads, sweepDownloadDirs };

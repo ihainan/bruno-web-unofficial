@@ -156,9 +156,14 @@ test('import a collection file from this computer, export it back as a download'
 
   // Export as ZIP: the save dialog offers "download to this computer".
   const row = page.getByTestId('collections').locator('.collection-name').filter({ hasText: 'imported-api' });
-  await row.hover();
-  await row.locator('.collection-actions .icon').click({ force: true });
-  await page.locator('.tippy-box .dropdown-item').filter({ hasText: /^Share$/ }).click();
+  const shareItem = page.locator('.tippy-box .dropdown-item').filter({ hasText: /^Share$/ });
+  // The actions icon only appears on hover; retry until the menu is really open.
+  await expect(async () => {
+    await row.hover();
+    await row.locator('.collection-actions .icon').click({ force: true });
+    await expect(shareItem).toBeVisible({ timeout: 2000 });
+  }).toPass({ timeout: 20000 });
+  await shareItem.click();
   const shareModal = page.locator('.bruno-modal-card').filter({ hasText: 'Share Collection' });
   await shareModal.getByText('Bruno Collection (ZIP)').click();
   await shareModal.getByRole('button', { name: 'Proceed' }).click();

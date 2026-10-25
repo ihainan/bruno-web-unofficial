@@ -189,6 +189,15 @@
             ev.preventDefault();
             const sib = ev.key === 'ArrowDown' ? row.nextElementSibling : row.previousElementSibling;
             if (sib) sib.focus();
+          } else if (ev.key === ' ' && selectable && mode !== 'save') {
+            ev.preventDefault();
+            if (multi && selected.has(full)) selected.delete(full);
+            else if (multi) selected.add(full);
+            else selected = new Set([full]);
+            renderList();
+            updateConfirm();
+            const again = list.querySelector(`[title="${CSS.escape(e.name)}"]`);
+            if (again) again.focus();
           } else if (ev.key === 'Backspace' && listing.parent) {
             ev.preventDefault();
             load(listing.parent);
@@ -269,17 +278,20 @@
     fileInput.addEventListener('change', async () => {
       const files = [...fileInput.files];
       fileInput.value = '';
+      // Fixed at selection time: the user may browse elsewhere while uploading.
+      const targetDir = current;
+      const existing = new Set(listing.entries.map((e) => e.name));
       const uploaded = [];
       for (const file of files) {
         setStatus(t('uploading', { name: file.name }));
         try {
           let overwrite = false;
-          if (listing.entries.some((e) => e.name === file.name)) {
+          if (existing.has(file.name)) {
             const answer = await messageBox({ type: 'warning', message: t('overwrite', { name: file.name }), buttons: [t('save'), t('cancel')], cancelId: 1 });
             if (answer.response !== 0) continue;
             overwrite = true;
           }
-          const res = await uploadInto(current, file, overwrite);
+          const res = await uploadInto(targetDir, file, overwrite);
           uploaded.push(res.path);
         } catch (err) {
           setStatus(t('uploadFailed', { error: err.message }), true);
@@ -287,7 +299,8 @@
         }
       }
       setStatus('');
-      await load(current);
+      if (done || current !== targetDir) return;
+      await load(targetDir);
       if (mode === 'file' && uploaded.length) {
         selected = new Set(multi ? uploaded : uploaded.slice(-1));
         renderList();
@@ -398,7 +411,12 @@
   const openAuthWindow = ({ window: id, url, callbackUrl }, { navigate, close }) => {
     let popup = null;
     const openPopup = () => {
+      if (!/^https?:/i.test(url)) return false;
       popup = window.open(url, `bruno-oauth-${id}`, 'popup,width=520,height=720');
+      // The sign-in page is someone else's site: it must not get a handle on Bruno.
+      if (popup) {
+        try { popup.opener = null; } catch (e) {}
+      }
       return !!popup;
     };
     const opened = openPopup();

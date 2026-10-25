@@ -65,6 +65,8 @@ const config = {
   // and base64), so a 50 MB response is ~90 MB on the wire; the desktop app
   // holds it in memory all the same.
   maxResultBytes: Number(process.env.BRUNO_WEB_MAX_RESULT_MB || 512) * 1024 * 1024,
+  // Unsent bytes queued for a slow page before its connection is dropped.
+  maxSendBacklogBytes: Number(process.env.BRUNO_WEB_MAX_BACKLOG_MB || 1024) * 1024 * 1024,
   maxUploadBytes: Number(process.env.BRUNO_WEB_MAX_UPLOAD_MB || 200) * 1024 * 1024,
   resumeWindowMs: Number(process.env.BRUNO_WEB_RESUME_SECONDS || 60) * 1000,
   replayMaxEvents: Number(process.env.BRUNO_WEB_REPLAY_MAX_EVENTS || 10000),
@@ -72,9 +74,14 @@ const config = {
 };
 
 // Scripts can read the whole process environment (bru.getProcessEnv()), so
-// none of our own settings — the password and keys in particular — may stay in it.
-for (const key of Object.keys(process.env)) {
-  if (key.startsWith('BRUNO_WEB_')) delete process.env[key];
-}
+// none of our own settings — the password and keys in particular — may stay in
+// it. Called again after upstream imports the login shell's environment.
+const scrubEnvironment = () => {
+  for (const key of Object.keys(process.env)) {
+    if (key.startsWith('BRUNO_WEB_')) delete process.env[key];
+  }
+};
+scrubEnvironment();
+config.scrubEnvironment = scrubEnvironment;
 
 module.exports = config;

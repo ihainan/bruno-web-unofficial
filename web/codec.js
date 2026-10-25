@@ -39,7 +39,7 @@
     return bytes;
   };
 
-  function replacer(key, value) {
+  function replacer(key, value, isRoot) {
     // `this[key]` is the value before toJSON() ran (Buffer and Date define toJSON).
     const raw = this[key];
     if (raw instanceof Uint8Array) return { [TAG]: 'u8', v: bytesToBase64(raw) };
@@ -56,7 +56,7 @@
     if (typeof raw === 'bigint') return { [TAG]: 'bigint', v: raw.toString() };
     if (typeof raw === 'number' && !Number.isFinite(raw)) return { [TAG]: 'num', v: String(raw) };
     // Structured clone keeps undefined (array slots and object properties); JSON would drop it.
-    if (raw === undefined && key !== '') return { [TAG]: 'undef' };
+    if (raw === undefined && !isRoot) return { [TAG]: 'undef' };
     if (value && typeof value === 'object' && !Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, TAG)) {
       // A user value that happens to use our tag key: carry it as entries so the
       // escaped form does not contain the tag key again.
@@ -103,10 +103,15 @@
         else restoreUndefined(node[i], seen);
       }
     } else if (node instanceof Map) {
-      for (const [k, v] of node) {
-        if (v === UNDEFINED) node.set(k, undefined);
-        else restoreUndefined(v, seen);
+      const entries = [...node];
+      node.clear();
+      for (const [k, v] of entries) {
+        node.set(k === UNDEFINED ? undefined : restoreUndefined(k, seen), v === UNDEFINED ? undefined : restoreUndefined(v, seen));
       }
+    } else if (node instanceof Set) {
+      const members = [...node];
+      node.clear();
+      for (const m of members) node.add(m === UNDEFINED ? undefined : restoreUndefined(m, seen));
     } else if (!(node instanceof Uint8Array) && !(node instanceof Date)) {
       for (const k of Object.keys(node)) {
         if (node[k] === UNDEFINED) node[k] = undefined;
@@ -117,7 +122,17 @@
   };
 
   let sawUndefinedMarker = false;
-  const encode = (msg) => JSON.stringify(msg, replacer);
+  // The first replacer call of each stringify is for the root value.
+  let atRoot = false;
+  const encode = (msg) => {
+    atRoot = true;
+    return JSON.stringify(msg, function (key, value) {
+      const isRoot = atRoot;
+      atRoot = false;
+      return replacer.call(this, key, value, isRoot);
+    });
+  };
+
   const decode = (text) => {
     // Most messages carry no tagged values; parsing without a reviver is
     // several times faster, which matters for large responses.

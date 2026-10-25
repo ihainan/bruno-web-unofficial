@@ -57,6 +57,7 @@
   };
 
   let execSeq = 0;
+  const EXEC_TIMEOUT_MS = 30000;
   const guests = new WeakMap(); // guest WindowProxy -> webview state
 
   const live = new Set(); // states whose iframe may not be mapped yet
@@ -100,6 +101,8 @@
       const state = el.__brunoWebview;
       if (!state || el.isConnected || !byId.has(state.id)) continue;
       byId.delete(state.id);
+      for (const [, p] of state.pending) p.reject(new Error('webview was removed'));
+      state.pending.clear();
       report('remove', { id: state.id });
     }
   };
@@ -161,7 +164,15 @@
       if (!win) return reject(new Error('webview is not attached'));
       guests.set(win, state);
       const id = ++execSeq;
-      state.pending.set(id, { resolve, reject });
+      // A guest without our bootstrap (load failure, navigated away) never answers.
+      const timer = setTimeout(() => {
+        if (!state.pending.delete(id)) return;
+        reject(new Error('webview did not answer executeJavaScript'));
+      }, EXEC_TIMEOUT_MS);
+      state.pending.set(id, {
+        resolve: (v) => { clearTimeout(timer); resolve(v); },
+        reject: (e) => { clearTimeout(timer); reject(e); }
+      });
       win.postMessage({ __brunoWeb: 'exec', id, code: String(code) }, '*');
     });
     el.getURL = () => el.getAttribute('src') || '';

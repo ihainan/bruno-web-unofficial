@@ -79,6 +79,8 @@ const start = async () => {
   waitForShellEnv()
     .catch((err) => console.warn('Shell env init failed:', err))
     .finally(() => {
+      // The login shell may export our settings too.
+      config.scrubEnvironment();
       fetchSystemProxy().catch((err) => console.warn('Failed to initialize system proxy cache:', err));
     });
 
@@ -140,6 +142,9 @@ const start = async () => {
       console.error('Failed to load cookies for renderer', err);
     }
     mainWindow.webContents.send('main:app-loaded', { isRunningInRosetta: getIsRunningInRosetta() });
+    // Upstream applies the saved zoom when its window is first shown.
+    const zoom = preferencesUtil.getZoomPercentage();
+    if (zoom && zoom !== 100) mainWindow.webContents.setZoomLevel(percentageToZoomLevel(zoom));
   });
 
   registerNetworkIpc(mainWindow);

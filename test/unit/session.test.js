@@ -163,3 +163,45 @@ test('a file dialog is answered by the page, and cancelled when a new page takes
   hub.attach(new FakeWs(), { pageId: 'p2', lastSeq: 0 });
   assert.deepEqual(await second, { canceled: true, filePaths: [] });
 });
+
+test('a result computed for a replaced page does not reach the new page', async () => {
+  const { hub, ipcMain } = makeHub();
+  let release;
+  ipcMain.handle('renderer:slow', () => new Promise((r) => { release = r; }));
+  const ws1 = new FakeWs();
+  hub.attach(ws1, { pageId: 'p1', lastSeq: 0 });
+  ws1.deliver({ t: 'invoke', id: 1, ch: 'renderer:slow', args: [] });
+  await tick();
+  const ws2 = new FakeWs();
+  hub.attach(ws2, { pageId: 'p2', lastSeq: 0 });
+  release('old page result');
+  await tick();
+  assert.equal(ws2.sent.filter((m) => m.t === 'result').length, 0);
+});
+
+test('malformed messages are ignored and a numbering gap forces a reconnect', async () => {
+  const { hub, ipcMain } = makeHub();
+  let calls = 0;
+  ipcMain.handle('renderer:x', () => ++calls);
+  const ws = new FakeWs();
+  hub.attach(ws, { pageId: 'p1', lastSeq: 0 });
+  ws.emit('message', Buffer.from('null'));
+  ws.emit('message', Buffer.from('42'));
+  ws.deliver({ t: 'invoke', id: 2, ch: 'renderer:x', args: [] });
+  await tick();
+  assert.equal(calls, 0);
+  assert.equal(ws.closed, 4002);
+});
+
+test('a page can resume after an overflow it had already received', () => {
+  const { hub } = makeHub();
+  const ws1 = new FakeWs();
+  hub.attach(ws1, { pageId: 'p1', lastSeq: 0 });
+  for (let i = 0; i < 10; i++) hub.pushEvent('main:burst', [i]);
+  const seen = hub.seq;
+  ws1.deliver({ t: 'ack', seq: seen });
+  ws1.drop();
+  const ws2 = new FakeWs();
+  hub.attach(ws2, { pageId: 'p1', lastSeq: seen });
+  assert.equal(ws2.sent[0].resumed, true);
+});

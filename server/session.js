@@ -42,11 +42,16 @@ class Hub {
     this.lastSeenAt = 0;
 
     this.seq = 0; // last sequence number sent
+    this.evictedSeq = 0; // highest seq dropped from the buffer
+    this.abandonTimer = null;
     this.ackedSeq = 0;
     this.buffer = []; // { seq, text } not yet acknowledged
     this.bufferBytes = 0;
-    this.bufferOverflowed = false;
     this.rx = 0; // highest page message id received
+    // Message ids restart with every page, so a result computed for a page that
+    // has since been replaced must not reach the new one (it would resolve an
+    // unrelated request with the same id).
+    this.generation = 0;
 
     this.rpcSeq = 0;
     this.pendingRpcs = new Map(); // id -> { resolve, reject, method, cancelValue }
@@ -58,9 +63,10 @@ class Hub {
   // ------------------------------------------------------------------ connections
 
   attach(ws, { pageId, lastSeq }) {
+    // Resumable if everything after lastSeq is still in the buffer.
     const resumable = this.pageId === pageId
       && Date.now() - this.lastSeenAt <= config.resumeWindowMs
-      && !this.bufferOverflowed
+      && lastSeq >= this.evictedSeq
       && lastSeq <= this.seq
       && lastSeq >= this.ackedSeq;
 
@@ -85,24 +91,43 @@ class Hub {
       ws.send(encode({ t: 'hello', resumed: false, rx: 0 }));
     }
 
-    ws.on('message', (data) => this.onMessage(ws, data));
-    ws.on('close', () => {
-      if (this.ws === ws) {
-        this.ws = null;
-        this.lastSeenAt = Date.now();
+    clearTimeout(this.abandonTimer);
+    ws.on('message', (data) => {
+      try {
+        this.onMessage(ws, data);
+      } catch (err) {
+        console.error('[bruno-web] failed to handle a page message', err);
+        try { ws.close(1011, 'internal error'); } catch (e) {}
       }
+    });
+    ws.on('close', () => {
+      if (this.ws !== ws) return;
+      this.ws = null;
+      this.lastSeenAt = Date.now();
+      // If the page does not come back within the resume window, nobody will
+      // answer what we asked it; end those calls instead of leaving them hanging.
+      clearTimeout(this.abandonTimer);
+      this.abandonTimer = setTimeout(() => {
+        if (!this.ws) this.cancelPageWork();
+      }, config.resumeWindowMs + 1000);
+      this.abandonTimer.unref();
     });
   }
 
   startNewPage(pageId) {
+    this.cancelPageWork();
+    this.generation += 1;
     this.pageId = pageId;
     this.buffer = [];
     this.bufferBytes = 0;
-    this.bufferOverflowed = false;
     this.ackedSeq = this.seq;
+    this.evictedSeq = this.seq;
     this.rx = 0;
     this.pageLoaded = false;
-    // Whatever the previous page was asked for can no longer be answered.
+  }
+
+  // Ends everything only a particular page could have completed.
+  cancelPageWork() {
     for (const [id, pending] of this.pendingRpcs) {
       this.pendingRpcs.delete(id);
       pending.resolve(pending.cancelValue);
@@ -112,6 +137,12 @@ class Hub {
     }
     this.authWindows.clear();
     this.guests.clear();
+    // A system-browser OAuth flow would otherwise wait for a callback that the
+    // page which started it can no longer use.
+    try {
+      const { cancelOAuth2AuthorizationRequest } = require(path.join(config.upstreamDir, 'packages/bruno-electron/src/utils/oauth2-protocol-handler'));
+      cancelOAuth2AuthorizationRequest();
+    } catch (e) {}
   }
 
   // ------------------------------------------------------------------ outbound
@@ -121,23 +152,41 @@ class Hub {
     let text = encode(msg);
     if (text.length > config.maxResultBytes) {
       console.error(`[bruno-web] ${msg.t} ${msg.ch || msg.method || ''} is ${text.length} bytes, over the limit`);
-      if (msg.t !== 'result') return;
-      text = encode({
-        t: 'result',
-        seq: msg.seq,
-        id: msg.id,
-        ok: false,
-        error: { message: formatInvokeError(msg.ch, `Error: Result too large for Bruno Web (${text.length} bytes)`) }
-      });
+      if (msg.t === 'result') {
+        text = encode({
+          t: 'result',
+          seq: msg.seq,
+          id: msg.id,
+          ok: false,
+          error: { message: formatInvokeError(msg.ch, `Error: Result too large for Bruno Web (${text.length} bytes)`) }
+        });
+      } else {
+        if (msg.t === 'rpc') {
+          const pending = this.pendingRpcs.get(msg.id);
+          this.pendingRpcs.delete(msg.id);
+          if (pending) pending.reject(new Error(`Request to the page too large (${text.length} bytes)`));
+        }
+        // The page would silently miss state it relies on: have it reload.
+        text = encode({ t: 'reload-required', seq: msg.seq, reason: 'message too large' });
+      }
     }
     this.buffer.push({ seq: msg.seq, text });
     this.bufferBytes += text.length;
     while (this.buffer.length > config.replayMaxEvents || this.bufferBytes > config.replayMaxBytes) {
-      this.bufferBytes -= this.buffer.shift().text.length;
-      // The page has not acknowledged it, so it can no longer catch up by replay.
-      this.bufferOverflowed = true;
+      const evicted = this.buffer.shift();
+      this.bufferBytes -= evicted.text.length;
+      // A page that has not received this can no longer catch up by replay.
+      this.evictedSeq = Math.max(this.evictedSeq, evicted.seq);
     }
-    if (this.ws && this.ws.readyState === 1) this.ws.send(text);
+    if (this.ws && this.ws.readyState === 1) {
+      this.ws.send(text);
+      // A page that does not keep up must not make us buffer without bound;
+      // closing makes it reconnect and catch up from the replay buffer (or reload).
+      if (this.ws.bufferedAmount > config.maxSendBacklogBytes) {
+        console.warn(`[bruno-web] page is ${this.ws.bufferedAmount} bytes behind; dropping the connection`);
+        this.ws.terminate();
+      }
+    }
   }
 
   pushEvent(channel, args) {
@@ -176,6 +225,10 @@ class Hub {
       console.error('[bruno-web] bad message from page', e.message);
       return;
     }
+    if (!msg || typeof msg !== 'object' || typeof msg.t !== 'string') {
+      console.error('[bruno-web] malformed message from page');
+      return;
+    }
     this.lastSeenAt = Date.now();
 
     // Control messages (no id, not subject to resend).
@@ -190,8 +243,15 @@ class Hub {
         break;
     }
 
-    // Everything else is numbered by the page; drop what we have already seen.
-    if (!(msg.id > this.rx)) return;
+    // Everything else is numbered by the page and must arrive in order: drop
+    // what we have already seen; on a gap, close so the page reconnects and
+    // resends from the first id we are missing.
+    if (!Number.isInteger(msg.id) || msg.id <= this.rx) return;
+    if (msg.id !== this.rx + 1) {
+      console.warn(`[bruno-web] page message ${msg.id} arrived before ${this.rx + 1}; reconnecting`);
+      ws.close(4002, 'out of order');
+      return;
+    }
     this.rx = msg.id;
 
     switch (msg.t) {
@@ -240,7 +300,11 @@ class Hub {
   }
 
   async onInvoke({ id, ch, args }) {
-    const deliverError = (errorText) => this.deliver({
+    const generation = this.generation;
+    const deliverResult = (msg) => {
+      if (this.generation === generation) this.deliver(msg);
+    };
+    const deliverError = (errorText) => deliverResult({
       t: 'result', id, ch, ok: false, error: { message: formatInvokeError(ch, errorText) }
     });
 
@@ -256,9 +320,10 @@ class Hub {
     try {
       const before = hook ? await hook.before(args) : null;
       const value = await invokeContext.run(ctx, () => handler(this.makeEvent(), ...args));
-      this.deliver({ t: 'result', id, ch, ok: true, value });
+      deliverResult({ t: 'result', id, ch, ok: true, value });
       if (hook) {
         ctx.after.push(async () => {
+          if (this.generation !== generation) return;
           for (const file of await hook.after(args, value, before)) this.offerDownload(file.path, { keep: !file.temporary });
         });
       }
@@ -334,6 +399,7 @@ class Hub {
       const stat = await waitForStableFile(filePath, 30000);
       if (!stat) {
         console.warn(`[bruno-web] nothing was written to ${filePath}; no download offered`);
+        fs.rm(path.dirname(filePath), { recursive: true, force: true }, () => {});
         return;
       }
       this.offerDownload(filePath, { keep: false });

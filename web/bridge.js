@@ -57,6 +57,11 @@
 
   let nextId = 0;
   const outbox = []; // { id, text } sent or queued, not yet confirmed received
+  // Numbered messages go out only after the server's hello on the current
+  // socket: it tells us which ids it already has, and the server drops any id
+  // at or below the highest it has seen, so a new message must never overtake
+  // an older one that still has to be resent.
+  let ready = false;
   let lastSeq = 0;
   let ackedSeq = 0;
   let ackTimer = null;
@@ -69,12 +74,20 @@
     ? (dir, msg) => console.debug(`[bruno-web ipc] ${dir} ${msg.t} ${msg.ch || msg.method || ''} #${msg.id != null ? msg.id : ''}${msg.seq != null ? ` seq ${msg.seq}` : ''}`)
     : () => {};
 
+  const maxBytes = settings.maxMessageBytes || 64 * 1024 * 1024;
+  const byteLength = (text) => (text.length * 3 <= maxBytes ? text.length : new TextEncoder().encode(text).length);
+
+  // Throws, without queueing, if the message could never be delivered: the
+  // server closes the socket on oversized messages, and resending would loop.
   const post = (msg) => {
+    const text = encode({ ...msg, id: nextId + 1 });
+    if (byteLength(text) > maxBytes) {
+      throw new Error(`Message too large for Bruno Web (${Math.round(byteLength(text) / 1048576)} MB, limit ${Math.round(maxBytes / 1048576)} MB)`);
+    }
     msg.id = ++nextId;
     debug('->', msg);
-    const text = encode(msg);
     outbox.push({ id: msg.id, text });
-    if (isOpen()) ws.send(text);
+    if (ready && isOpen()) ws.send(text);
     return msg.id;
   };
 
@@ -95,6 +108,13 @@
 
   const stop = (state, opts) => {
     stopped = true;
+    ready = false;
+    // Nothing queued here will be answered any more.
+    outbox.length = 0;
+    for (const [id, pending] of pendingInvokes) {
+      pendingInvokes.delete(id);
+      pending.reject(new Error(`Error invoking remote method '${pending.channel}': Error: Bruno Web connection closed (${state})`));
+    }
     clearTimeout(reconnectTimer);
     clearInterval(heartbeatTimer);
     clearTimeout(pongTimer);
@@ -139,6 +159,7 @@
 
     socket.onclose = async (event) => {
       if (ws !== socket) return;
+      ready = false;
       clearInterval(heartbeatTimer);
       clearTimeout(pongTimer);
       if (stopped) return;
@@ -180,6 +201,8 @@
         return stop('taken-over', { onAction: () => location.reload() });
       case 'auth-expired':
         return onAuthExpired();
+      case 'reload-required':
+        return reloadPage();
       case 'result':
         return onResult(msg);
       case 'event':
@@ -205,6 +228,7 @@
     ui.connectionState(null);
     confirmReceived(msg.rx || 0);
     for (const entry of outbox) ws.send(entry.text);
+    ready = true;
     startHeartbeat();
     if (first) {
       reportTheme();
@@ -231,8 +255,27 @@
   const EARLY_WINDOW_MS = 10000;
   const startedAt = Date.now();
   const early = new Map(); // channel -> args[]
+  const replaying = new Map(); // channel -> args[] queued behind held events
+
+  const dispatch = (channel, args) => {
+    const set = listeners.get(channel);
+    if (!set) return;
+    for (const fn of [...set]) {
+      if (!set.has(fn)) continue;
+      try {
+        fn(...args);
+      } catch (err) {
+        console.error(`[bruno-web] listener for ${channel} failed`, err);
+      }
+    }
+  };
 
   const emit = (channel, args) => {
+    // Held events are still being handed over: keep arrival order.
+    if (replaying.has(channel)) {
+      replaying.get(channel).push(args);
+      return;
+    }
     const set = listeners.get(channel);
     if (!set || !set.size) {
       if (Date.now() - startedAt < EARLY_WINDOW_MS) {
@@ -241,13 +284,7 @@
       }
       return;
     }
-    for (const fn of [...set]) {
-      try {
-        fn(...args);
-      } catch (err) {
-        console.error(`[bruno-web] listener for ${channel} failed`, err);
-      }
-    }
+    dispatch(channel, args);
   };
 
   const on = (channel, handler) => {
@@ -259,12 +296,13 @@
     const held = early.get(channel);
     if (held) {
       early.delete(channel);
+      replaying.set(channel, held);
+      // Asynchronously, as Electron delivers events, after the subscriber's
+      // own synchronous setup has finished.
       setTimeout(() => {
-        for (const args of held) {
-          if (set.has(wrapped)) {
-            try { wrapped(...args); } catch (err) { console.error(`[bruno-web] listener for ${channel} failed`, err); }
-          }
-        }
+        const queue = replaying.get(channel) || [];
+        replaying.delete(channel);
+        for (const args of queue) dispatch(channel, args);
       });
     }
     return () => set.delete(wrapped);
@@ -272,7 +310,12 @@
 
   // --------------------------------------------------------------- server -> page calls
   const respond = (rpc, ok, valueOrError) => {
-    post(ok ? { t: 'rpc-result', rpc, ok: true, value: valueOrError } : { t: 'rpc-result', rpc, ok: false, error: { message: String(valueOrError && valueOrError.message || valueOrError) } });
+    const failure = (err) => ({ t: 'rpc-result', rpc, ok: false, error: { message: String((err && err.message) || err) } });
+    try {
+      post(ok ? { t: 'rpc-result', rpc, ok: true, value: valueOrError } : failure(valueOrError));
+    } catch (err) {
+      post(failure(err));
+    }
   };
 
   const onRpc = async ({ id, method, params }) => {
@@ -346,27 +389,34 @@
 
   // --------------------------------------------------------------- getFilePath
   // Electron returns the file's local path synchronously. Here the file is
-  // uploaded and the server path it will have is returned at once; invoke()
-  // waits for outstanding uploads, so the main process never sees a path
-  // before the file exists. Files picked together share a folder, which keeps
-  // sibling references (proto imports, WSDL schemas) working.
-  const filePaths = new WeakMap();
-  const uploads = new Set();
-  let batchDir = null;
+  // uploaded and the server path it will have is returned at once; an invoke
+  // whose arguments mention that path waits for the upload (and fails if the
+  // upload failed), so the main process never sees a path before the file
+  // exists. Files picked in the same turn share a folder, which keeps sibling
+  // references working; a second file with the same name gets its own folder.
+  const filePaths = new WeakMap(); // File -> server path
+  const uploads = new Map(); // server path -> { promise, error }
+  let batch = null; // { dir, names }
 
   const getFilePath = (file) => {
     if (!file || typeof file.name !== 'string') return '';
-    if (filePaths.has(file)) return filePaths.get(file);
-    if (!batchDir) {
-      batchDir = uuid();
-      setTimeout(() => { batchDir = null; });
+    const known = filePaths.get(file);
+    // Picking the same file again after a failed upload retries it.
+    if (known && !(uploads.get(known) && uploads.get(known).error)) return known;
+
+    const name = file.name.replace(/[\\/]/g, '_') || 'file';
+    if (!batch || batch.names.has(name)) {
+      batch = { dir: uuid(), names: new Set() };
+      const current = batch;
+      setTimeout(() => { if (batch === current) batch = null; });
     }
-    const id = batchDir;
+    batch.names.add(name);
     const sep = settings.sep || '/';
-    const safeName = file.name.replace(/[\\/]/g, '_') || 'file';
-    const serverPath = `${settings.uploadsDir}${sep}${id}${sep}${safeName}`;
+    const serverPath = `${settings.uploadsDir}${sep}${batch.dir}${sep}${name}`;
     filePaths.set(file, serverPath);
-    const upload = fetch(`/bruno-web/api/upload/${id}/${encodeURIComponent(safeName)}`, {
+    const entry = { error: null };
+    const dir = batch.dir;
+    entry.promise = fetch(`/bruno-web/api/upload/${dir}/${encodeURIComponent(name)}`, {
       method: 'PUT',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/octet-stream' },
@@ -375,29 +425,64 @@
       if (!res.ok) {
         let message = `HTTP ${res.status}`;
         try { message = (await res.json()).error || message; } catch (e) {}
-        throw new Error(t('uploadFailed', { error: message }));
+        throw new Error(message);
       }
+    }).catch((err) => {
+      entry.error = new Error(t('uploadFailed', { error: err.message }));
+      ui.toast(entry.error.message, { level: 'error' });
     });
-    uploads.add(upload);
-    upload.catch(() => {}).finally(() => uploads.delete(upload));
-    upload.catch((err) => ui.toast(err.message, { level: 'error' }));
+    uploads.set(serverPath, entry);
     return serverPath;
   };
 
+  // Uploads whose server path appears in the arguments.
+  const uploadsReferencedBy = (args) => {
+    if (!uploads.size) return [];
+    let text;
+    try {
+      text = JSON.stringify(args);
+    } catch (e) {
+      return [...uploads.values()];
+    }
+    const out = [];
+    for (const [p, entry] of uploads) {
+      if (text.includes(JSON.stringify(p).slice(1, -1))) out.push(entry);
+    }
+    return out;
+  };
+
   // --------------------------------------------------------------- ipcRenderer
+  const invokeError = (channel, err) => new Error(`Error invoking remote method '${channel}': Error: ${err.message}`);
+
   const invoke = async (channel, ...args) => {
-    if (uploads.size) await Promise.all([...uploads]);
+    const needed = uploadsReferencedBy(args);
+    if (needed.length) {
+      await Promise.all(needed.map((e) => e.promise));
+      const failed = needed.find((e) => e.error);
+      if (failed) throw invokeError(channel, failed.error);
+    }
+    if (stopped) throw invokeError(channel, new Error('Bruno Web connection closed'));
     return new Promise((resolve, reject) => {
       const id = nextId + 1;
       pendingInvokes.set(id, { resolve, reject, channel });
-      post({ t: 'invoke', ch: channel, args });
+      try {
+        post({ t: 'invoke', ch: channel, args });
+      } catch (err) {
+        pendingInvokes.delete(id);
+        reject(invokeError(channel, err));
+      }
     });
   };
 
   window.ipcRenderer = {
     invoke,
     send: (channel, ...args) => {
-      post({ t: 'send', ch: channel, args });
+      if (stopped) return;
+      try {
+        post({ t: 'send', ch: channel, args });
+      } catch (err) {
+        ui.toast(err.message, { level: 'error' });
+      }
     },
     on,
     once: (channel, handler) => {
@@ -408,11 +493,16 @@
       return off;
     },
     removeAllListeners: (channel) => {
+      // Clear the sets too: a pending replay holds on to them.
+      for (const [ch, set] of listeners) {
+        if (channel === undefined || ch === channel) set.clear();
+      }
       if (channel === undefined) listeners.clear();
       else listeners.delete(channel);
     },
     getFilePath,
-    openExternal: (url) => dialogs.openExternal(url)
+    // Electron's preload returns shell.openExternal()'s promise.
+    openExternal: (url) => Promise.resolve(dialogs.openExternal(url))
   };
 
   // The desktop app asks before quitting with unsaved changes; a closing or
@@ -424,6 +514,15 @@
     event.preventDefault();
     event.returnValue = '';
   });
+
+  // Keeps the login cookie fresh while the page is in use; a 401 means the
+  // session is gone.
+  setInterval(() => {
+    if (stopped) return;
+    fetch('/bruno-web/api/session', { credentials: 'same-origin', cache: 'no-store' })
+      .then((res) => { if (res.status === 401) onAuthExpired(); })
+      .catch(() => {});
+  }, 15 * 60 * 1000);
 
   window.BrunoWebWebview.setReporter((op, { id, url }) => post({ t: 'webview', op, guest: id, url }));
 

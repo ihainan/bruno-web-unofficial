@@ -149,6 +149,10 @@ class Policy {
         break;
       } catch (e) {
         if (e.code !== 'ENOENT') throw e;
+        // realpath() also says ENOENT for a link whose target does not exist;
+        // writing through it would land wherever the link points.
+        const link = await fs.promises.lstat(existing).catch(() => null);
+        if (link && link.isSymbolicLink()) throw new Error(`Path is a link to a missing target: ${p}`);
         if (!forWrite && missingParts.length === 0 && existing === normalized) {
           // Open dialogs may only return existing paths…
           throw new Error(`Path does not exist: ${p}`);

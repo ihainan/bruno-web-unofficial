@@ -36,3 +36,20 @@ test('WebSocket and API writes must come from our own origin', () => {
   assert.ok(!auth.isSameOrigin(req({ origin: 'null', host: 'bruno.example:8484' })));
   assert.ok(!auth.isSameOrigin(req({ host: 'bruno.example:8484' })));
 });
+
+test('a malformed cookie is ignored instead of throwing', () => {
+  const auth = new Auth();
+  assert.equal(auth.userFor(req({ cookie: 'bruno_web_session=%' })), null);
+});
+
+test('a malformed password hash never matches', () => {
+  assert.equal(verifyPassword('anything', 'scrypt$aa$zz'), false);
+  assert.equal(verifyPassword('anything', 'scrypt$$'), false);
+});
+
+test('the same host on another scheme is not the same origin', () => {
+  const auth = new Auth();
+  const r = { headers: { origin: 'https://bruno.example:8484', host: 'bruno.example:8484' }, socket: { remoteAddress: 'x' } };
+  assert.ok(!auth.isSameOrigin(r));
+  assert.ok(!auth.isSameOrigin({ headers: { origin: 'file://bruno.example:8484', host: 'bruno.example:8484' }, socket: {} }));
+});

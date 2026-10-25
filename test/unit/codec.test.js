@@ -50,3 +50,19 @@ test('invoke error text matches Electron, which the renderer parses', () => {
   // utils/common/error.js in bruno-app strips exactly this prefix.
   assert.equal(msg.replace(/^Error invoking remote method '.+?': (Error: )?/, ''), 'Request cancelled');
 });
+
+test('undefined survives as a Map key or value, a Set member and under an empty-string key', () => {
+  const out = roundTrip({ m: new Map([[undefined, 1], ['k', undefined]]), s: new Set([undefined, 2]), e: { '': undefined } });
+  assert.ok(out.m.has(undefined));
+  assert.equal(out.m.get(undefined), 1);
+  assert.ok(out.m.has('k'));
+  assert.equal(out.m.get('k'), undefined);
+  assert.ok(out.s.has(undefined));
+  assert.ok('' in out.e);
+});
+
+test('messages without tagged values take the plain JSON path and still decode', () => {
+  const text = encode({ t: 'event', ch: 'main:x', args: [{ a: 1, b: 'two' }] });
+  assert.ok(!text.includes('__bw$'));
+  assert.deepEqual(decode(text).args, [{ a: 1, b: 'two' }]);
+});

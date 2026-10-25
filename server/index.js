@@ -17,7 +17,7 @@ const config = require('./config');
 const { Auth } = require('./auth');
 const { Policy } = require('./policy');
 const { Hub } = require('./session');
-const { createFsRouter, Downloads } = require('./fs-api');
+const { createFsRouter, Downloads, sweepDownloadDirs } = require('./fs-api');
 const { createSelfcheck } = require('./selfcheck');
 const pages = require('./pages');
 
@@ -116,6 +116,8 @@ const main = async () => {
     if (req.user) {
       // Learn our public address from a request we trust, for the OAuth2 callback hint.
       if (!policy.publicOrigin) policy.setPublicOrigin(requestOrigin(req));
+      const refreshed = auth.refreshCookie(req);
+      if (refreshed) res.setHeader('Set-Cookie', refreshed);
       return next();
     }
     if (req.method === 'GET' && (req.path === '/' || req.path === '/index.html') && auth.mode === 'password') {
@@ -130,6 +132,8 @@ const main = async () => {
     next();
   });
   app.use('/bruno-web/api', createFsRouter({ policy, downloads }));
+  // The page calls this now and then so the login cookie is renewed (see Auth.refreshCookie).
+  app.get('/bruno-web/api/session', (req, res) => res.json({ user: req.user }));
 
   // Completes a pending OAuth2 authorization with the callback address the
   // popup landed on. Upstream still validates `state`.
@@ -206,6 +210,7 @@ const main = async () => {
       terminal: config.enableTerminal,
       playwright: config.playwright,
       debugIpc: config.debugIpc,
+      maxMessageBytes: config.maxMessageBytes,
       developerMode: config.allowDeveloperMode
     };
     res.setHeader('Cache-Control', 'no-store');
@@ -228,6 +233,15 @@ const main = async () => {
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxMessageBytes });
 
   server.on('upgrade', (req, socket, head) => {
+    try {
+      handleUpgrade(req, socket, head);
+    } catch (err) {
+      console.error('[bruno-web] rejected WebSocket upgrade', err);
+      socket.destroy();
+    }
+  });
+
+  const handleUpgrade = (req, socket, head) => {
     const url = new URL(req.url, 'http://x');
     const reject = (code, text) => {
       socket.write(`HTTP/1.1 ${code} ${text}\r\nConnection: close\r\n\r\n`);
@@ -241,10 +255,12 @@ const main = async () => {
     if (!policy.publicOrigin) policy.setPublicOrigin(requestOrigin(req));
     wss.handleUpgrade(req, socket, head, (ws) => {
       ws.authHeaders = { ...req.headers };
+      // Oversized frames and protocol errors close this socket only.
+      ws.on('error', (err) => console.warn('[bruno-web] WebSocket error', err.message));
       ws.on('message', () => auth.touch(ws.authHeaders));
       hub.attach(ws, { pageId, lastSeq });
     });
-  });
+  };
 
   // Close sockets whose login has expired or been revoked (logout elsewhere).
   setInterval(() => {
@@ -255,7 +271,11 @@ const main = async () => {
       }
     }
   }, 30 * 1000).unref();
-  setInterval(() => downloads.sweep(), 10 * 60 * 1000).unref();
+  sweepDownloadDirs();
+  setInterval(() => {
+    downloads.sweep();
+    sweepDownloadDirs();
+  }, 10 * 60 * 1000).unref();
 
   await new Promise((resolve) => server.listen(config.port, config.host, resolve));
   console.log(`[bruno-web] listening on http://${config.host}:${config.port} (auth: ${auth.mode}, data: ${config.dataDir})`);

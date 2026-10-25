@@ -170,6 +170,24 @@ svg { display: block; flex: none; }
     return layer;
   };
 
+  // Keep Tab inside a modal: focus must not wander into the page behind it,
+  // where Bruno's shortcuts would act.
+  const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+  const trapFocus = (e, container) => {
+    const items = [...container.querySelectorAll(FOCUSABLE)].filter((el) => el.offsetParent !== null);
+    if (!items.length) return;
+    const active = shadow.activeElement;
+    const first = items[0];
+    const last = items[items.length - 1];
+    if (e.shiftKey && (active === first || !container.contains(active))) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && (active === last || !container.contains(active))) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
   // Keyboard events inside our dialogs must not reach Bruno's global hotkeys.
   const isolateKeys = (el) => {
     for (const type of ['keydown', 'keyup', 'keypress']) el.addEventListener(type, (e) => e.stopPropagation());
@@ -195,6 +213,8 @@ svg { display: block; flex: none; }
       if (e.key === 'Escape' && onCancel) {
         e.preventDefault();
         onCancel();
+      } else if (e.key === 'Tab') {
+        trapFocus(e, box);
       }
     });
     isolateKeys(backdrop);
@@ -269,6 +289,12 @@ svg { display: block; flex: none; }
         h('button', { class: 'btn ghost icon', 'aria-label': t('cancel'), onClick: () => onCancel && onCancel() }, icon('x'))),
       h('div', { class: 'modal-body' }, body),
       footer ? h('div', { class: 'modal-foot' }, footer) : null);
+    el.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && onCancel) {
+        e.preventDefault();
+        onCancel();
+      }
+    });
     isolateKeys(el);
     root.appendChild(el);
     return { root: el, close: () => el.remove() };
