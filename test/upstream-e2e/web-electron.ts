@@ -141,10 +141,19 @@ class WebElectronApp extends EventEmitter {
 
   private async openContext() {
     const storage = this.storageFile();
+    let storageState: any;
+    if (storage && fs.existsSync(storage)) {
+      // Storage is keyed by origin, and each launch gets a new port; a real
+      // deployment keeps its address. Move the previous run's origin over.
+      storageState = JSON.parse(fs.readFileSync(storage, 'utf8'));
+      for (const o of storageState.origins || []) {
+        if (/^http:\/\/127\.0\.0\.1:\d+$/.test(o.origin)) o.origin = this.base;
+      }
+    }
     this.ctx = await this.browser.newContext({
       viewport: { width: 1280, height: 768 },
       acceptDownloads: true,
-      storageState: storage && fs.existsSync(storage) ? storage : undefined
+      storageState
     });
     // The desktop app may use the clipboard. Granted to Bruno's own origin
     // only; app guests (opaque origins) stay denied.

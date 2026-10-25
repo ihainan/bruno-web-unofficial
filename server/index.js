@@ -42,6 +42,8 @@ const main = async () => {
   if (!config.sampleCollection) process.env.DISABLE_SAMPLE_COLLECTION_IMPORT = 'true';
 
   const auth = new Auth();
+  // Before anything else loads @usebruno/js (the policy below does).
+  require('./upstream-main').loadSandboxAsAppHost();
   const policy = new Policy();
   policy.install();
 

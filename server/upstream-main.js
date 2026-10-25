@@ -10,6 +10,22 @@ const config = require('./config');
 const src = path.join(config.upstreamDir, 'packages', 'bruno-electron', 'src');
 const up = (p) => require(path.join(src, p));
 
+// bruno-js decides at load time whether it runs in the app or the CLI by
+// looking for process.versions.electron, and in the CLI it hides the QuickJS
+// engine's abort diagnostics (stderr is the user's screen there). Our stderr
+// is a server log, like the app's. Declare Electron only while that module
+// loads: other packages (commander, open) change behaviour on the same check.
+const loadSandboxAsAppHost = () => {
+  const jsSrc = path.dirname(require.resolve('@usebruno/js', { paths: [src] }));
+  const versions = process.versions;
+  Object.defineProperty(process, 'versions', { value: { ...versions, electron: 'bruno-web' }, configurable: true, writable: false, enumerable: true });
+  try {
+    require(path.join(jsSrc, 'sandbox', 'quickjs'));
+  } finally {
+    Object.defineProperty(process, 'versions', { value: versions, configurable: true, writable: false, enumerable: true });
+  }
+};
+
 const start = async () => {
   const electron = require('electron');
   const { mainWindow, ipcMain } = electron.__bruno_web__;
@@ -194,4 +210,4 @@ const start = async () => {
   return { shutdown };
 };
 
-module.exports = { start, upstreamSrc: src };
+module.exports = { start, loadSandboxAsAppHost, upstreamSrc: src };
