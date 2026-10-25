@@ -1,0 +1,7 @@
+upstream/
+node_modules/
+/data/
+/dist/
+*.log
+test-results/
+playwright-report/
