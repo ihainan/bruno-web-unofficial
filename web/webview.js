@@ -17,6 +17,22 @@
  */
 (function () {
   const SANDBOX = 'allow-scripts allow-forms allow-modals allow-popups';
+  // Same as upstream's guest session (app-documents.js): writing to the
+  // clipboard is the only permission a guest gets.
+  const ALLOW = [
+    'clipboard-write',
+    "clipboard-read 'none'",
+    "camera 'none'",
+    "microphone 'none'",
+    "geolocation 'none'",
+    "display-capture 'none'",
+    "usb 'none'",
+    "serial 'none'",
+    "hid 'none'",
+    "bluetooth 'none'",
+    "payment 'none'",
+    "midi 'none'"
+  ].join('; ');
 
   const toFrameUrl = async (src) => {
     if (!src) return 'about:blank';
@@ -98,6 +114,7 @@
 
     const frame = document.createElement('iframe');
     frame.setAttribute('sandbox', SANDBOX);
+    frame.setAttribute('allow', ALLOW);
     frame.setAttribute('referrerpolicy', 'no-referrer');
     frame.style.cssText = 'border:0;width:100%;height:100%;flex:1 1 auto;display:block;background:transparent;';
     state.frame = frame;
