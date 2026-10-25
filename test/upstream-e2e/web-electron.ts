@@ -90,6 +90,7 @@ class WebElectronApp extends EventEmitter {
       if (Date.now() > deadline) throw new Error(`Bruno Web server did not start: ${this.stderr}`);
       await sleep(100);
     }
+    await this.openContext();
   }
 
   process() {
@@ -125,15 +126,29 @@ class WebElectronApp extends EventEmitter {
     return body.result;
   }
 
-  async context() {
-    await this.revive();
-    if (!this.ctx) {
-      this.ctx = await this.browser.newContext({
-        viewport: { width: 1280, height: 768 },
-        acceptDownloads: true
-      });
-    }
-    return this.ctx;
+  // Electron's ElectronApplication.context() is synchronous; specs call
+  // `app.context().close()`. The context is created when the app starts.
+  context() {
+    return this.ctx as BrowserContext;
+  }
+
+  // Browser storage (localStorage etc.) lives with the user's browser, not the
+  // server. Electron keeps it in userData, so a restarted app finds it again:
+  // keep a copy next to the user data to give restarts the same behaviour.
+  private storageFile() {
+    return this.env.ELECTRON_USER_DATA_PATH ? path.join(this.env.ELECTRON_USER_DATA_PATH, '.bruno-web-browser-storage.json') : null;
+  }
+
+  private async openContext() {
+    const storage = this.storageFile();
+    this.ctx = await this.browser.newContext({
+      viewport: { width: 1280, height: 768 },
+      acceptDownloads: true,
+      storageState: storage && fs.existsSync(storage) ? storage : undefined
+    });
+    // The desktop app may use the clipboard. Granted to Bruno's own origin
+    // only; app guests (opaque origins) stay denied.
+    await this.ctx.grantPermissions(['clipboard-read', 'clipboard-write'], { origin: this.base });
   }
 
   firstWindow() {
@@ -141,8 +156,16 @@ class WebElectronApp extends EventEmitter {
     if (!this.pagePromise) {
       this.pagePromise = (async () => {
         await this.revive();
-        const ctx = await this.context();
-        const page = await ctx.newPage();
+        const page = await this.ctx!.newPage();
+        // Electron reloads without a "leave site?" prompt.
+        page.on('dialog', (d) => { if (d.type() === 'beforeunload') d.accept().catch(() => {}); });
+        // The server asks the page to resize its window (BrowserWindow.setContentSize).
+        await page.exposeBinding('__brunoWebResize', async (_src, size) => {
+          await page.setViewportSize({ width: size.width, height: size.height });
+        });
+        await page.addInitScript(() => {
+          window.addEventListener('bruno-web:window-size', (e: any) => (window as any).__brunoWebResize(e.detail));
+        });
         // E2E_PAGE_LOG=<file>: append the page's console output and errors, for debugging.
         if (process.env.E2E_PAGE_LOG) {
           const out = (line: string) => fs.appendFileSync(process.env.E2E_PAGE_LOG as string, `${new Date().toISOString()} ${this.base} ${line}\n`);
@@ -169,6 +192,10 @@ class WebElectronApp extends EventEmitter {
   }
 
   async close() {
+    const storage = this.storageFile();
+    try {
+      if (this.ctx && storage) await this.ctx.storageState({ path: storage });
+    } catch (e) { /* context already closed by the spec */ }
     try { await this.ctx?.close(); } catch (e) { /* already closed */ }
     this.ctx = null;
     this.page = null;

@@ -307,6 +307,9 @@
       case 'reload':
         location.reload();
         return;
+      case 'window-size':
+        window.dispatchEvent(new CustomEvent('bruno-web:window-size', { detail: params }));
+        return;
       case 'clipboard':
         if (navigator.clipboard) navigator.clipboard.writeText(params.text).catch(() => {});
         return;
@@ -411,6 +414,16 @@
     getFilePath,
     openExternal: (url) => dialogs.openExternal(url)
   };
+
+  // The desktop app asks before quitting with unsaved changes; a closing or
+  // reloading tab gets the browser's own confirmation instead. Unsaved request
+  // tabs carry Bruno's draft marker.
+  window.addEventListener('beforeunload', (event) => {
+    if (stopped) return;
+    if (!document.querySelector('.has-changes-icon')) return;
+    event.preventDefault();
+    event.returnValue = '';
+  });
 
   window.BrunoWebWebview.setReporter((op, { id, url }) => post({ t: 'webview', op, guest: id, url }));
 

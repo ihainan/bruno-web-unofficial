@@ -201,7 +201,12 @@ class BrowserWindow extends EventEmitter {
 
   close() {
     if (this._destroyed) return;
-    if (this._kind === 'main') return;
+    if (this._kind === 'main') {
+      // The page outlives any "close": upstream's index.js turns this event
+      // into the unsaved-changes quit flow, and so does server/upstream-main.js.
+      this.emit('close', { preventDefault() {} });
+      return;
+    }
     this.emit('close', { preventDefault() {} });
     this._destroyed = true;
     windows.delete(this);
@@ -210,6 +215,8 @@ class BrowserWindow extends EventEmitter {
   }
 
   destroy() {
+    // Destroying the main window ends the desktop app; the server keeps running.
+    if (this._kind === 'main') return;
     this.close();
   }
 
@@ -229,8 +236,18 @@ class BrowserWindow extends EventEmitter {
   isFocused() { return true; }
   isDestroyed() { return this._destroyed; }
   getBounds() { return { x: 0, y: 0, width: 1440, height: 900 }; }
-  setBounds() {}
-  getSize() { return [1440, 900]; }
+  setBounds(bounds) {
+    if (bounds && bounds.width && bounds.height) this.setContentSize(bounds.width, bounds.height);
+  }
+  getSize() { return this.getContentSize(); }
+  setSize(width, height) { this.setContentSize(width, height); }
+  getContentSize() { return this._contentSize || [1280, 768]; }
+  // A page cannot resize its browser window; the request is passed on as an
+  // event the page (or a test harness driving it) may act on.
+  setContentSize(width, height) {
+    this._contentSize = [width, height];
+    if (this._kind === 'main' && hub) hub.notify('window-size', { width, height });
+  }
   setTitle() {}
   setMenu() {}
   setMenuBarVisibility() {}

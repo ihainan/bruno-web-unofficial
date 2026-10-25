@@ -154,6 +154,21 @@ const start = async () => {
     ipcMain.emit('internal:snapshot:reset');
   });
 
+  // Same as upstream's index.js: closing the main window starts the
+  // unsaved-changes flow instead of closing.
+  mainWindow.on('close', () => {
+    ipcMain.emit('main:start-quit-flow');
+  });
+
+  // Upstream exits the process here ("Force quit" on the crash screen). For a
+  // server that would take Bruno down for its user; reloading the page is the
+  // browser's equivalent of restarting the app.
+  ipcMain.removeHandler('main:force-quit');
+  ipcMain.handle('main:force-quit', () => {
+    const hub = electron.__bruno_web__.getHub();
+    if (hub) hub.notify('reload', {});
+  });
+
   const closeAllWatchers = () => Promise.allSettled([
     collectionWatcher.closeAllWatchers(),
     workspaceWatcher.closeAllWatchers(),
