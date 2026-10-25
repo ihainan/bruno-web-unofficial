@@ -43,6 +43,7 @@
     openLink: 'Open link',
     download: 'Download {name}',
     downloadShort: 'Download',
+    willSelect: 'Will select:',
     serverPath: 'Server path',
     item: 'item',
     items: 'items'
@@ -90,6 +91,7 @@
     openLink: '打开链接',
     download: '下载 {name}',
     downloadShort: '下载',
+    willSelect: '将选择：',
     serverPath: '服务器路径',
     item: '项',
     items: '项'

@@ -1,15 +1,18 @@
 /*
  * Touch-screen layout for Bruno's desktop UI. Applies to touch screens only:
- * a narrow desktop window keeps upstream's layout.
+ * a narrow desktop window keeps upstream's layout. Selectors target upstream's
+ * own class names, so re-check them on phone screenshots after an upstream
+ * upgrade (the phone test in test/e2e/web.spec.js covers the main flow).
  *
- * - The sidebar becomes a drawer over the content, opened with Bruno's own
- *   sidebar button (web/mobile.js keeps its state separate from Bruno's
- *   collapsed setting, which is shared with other devices).
- * - On phones, request and response stack vertically instead of side by side.
- * - The page uses the dynamic viewport height so the status bar stays above
- *   the mobile browser's toolbar.
+ *   <= 1024 px  the sidebar is a drawer (web/mobile.js keeps its state apart
+ *               from Bruno's collapsed setting, which is shared with other
+ *               devices); hover-only controls are always shown; dialogs fit.
+ *   <=  900 px  request and response stack; settings pages lose their side
+ *               columns.
+ *   <=  760 px  phone details: tighter padding, wrapped toolbars and rows.
  */
-/* Phones and tablets: the sidebar becomes a drawer so content gets the full width. */
+
+/* ---------------------------------------------------------------- touch, <= 1024 */
 @media (max-width: 1024px) and (pointer: coarse) {
   #main-container {
     height: 100dvh !important;
@@ -46,6 +49,40 @@
     min-height: 36px;
   }
 
+  /* Row menus ("…") appear on hover only, and a touch screen has no hover. */
+  aside[data-testid="sidebar"] .collection-actions,
+  aside[data-testid="sidebar"] .menu-icon {
+    visibility: visible !important;
+  }
+
+  /* Menus: taller items, and never longer than the screen. */
+  .tippy-box .dropdown-item {
+    min-height: 40px;
+  }
+  .tippy-box .tippy-content {
+    max-height: calc(100dvh - 72px);
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .app-titlebar .action-icon {
+    min-width: 36px;
+    min-height: 36px;
+  }
+
+  /* Dialogs: upstream gives them minimum widths of 500/800/1140 px. */
+  .bruno-modal-card {
+    min-width: 0 !important;
+    width: calc(100vw - 16px) !important;
+    max-width: calc(100vw - 16px) !important;
+    margin-top: 8px !important;
+    max-height: calc(100dvh - 16px);
+    display: flex;
+    flex-direction: column;
+  }
+  .bruno-modal-card .bruno-modal-content {
+    min-height: 0;
+    overflow: auto;
+  }
 
   /* Response header: status, timing and format move to a second line so the
      tabs keep their labels when the response pane is narrow. */
@@ -59,19 +96,34 @@
     width: 100%;
     justify-content: flex-start;
   }
+
+  /* Tables (params, headers, assertions, variables): scroll sideways instead
+     of squeezing every column to a few pixels. */
+  .table-container {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .table-container > div > table,
+  .table-container > table {
+    min-width: 600px;
+  }
+
+  /* Status bar and the dev tools header: let them scroll instead of spilling. */
+  .status-bar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .console-header {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .console-header .console-controls {
+    flex-shrink: 0;
+  }
 }
 
-/* Phones: one column. */
-@media (max-width: 760px) and (pointer: coarse) {
-  /* Title bar: keep the controls, drop the centred logo text. */
-  .app-titlebar .titlebar-center {
-    display: none !important;
-  }
-  .app-titlebar .titlebar-left {
-    min-width: 0;
-    overflow: hidden;
-  }
-
+/* ---------------------------------------------------------------- touch, <= 900 */
+@media (max-width: 900px) and (pointer: coarse) {
   /* Request above response. */
   section.main {
     flex-direction: column !important;
@@ -93,6 +145,74 @@
     padding-top: 0.5rem;
     border-top: 1px solid rgba(127, 127, 127, 0.25);
   }
+
+  /* Environment settings: the environment list goes above the variables. */
+  .environments-container {
+    flex-direction: column !important;
+  }
+  .environments-container > .sidebar {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-height: 32dvh;
+    flex-shrink: 0;
+    border-right: 0 !important;
+    border-bottom: 1px solid rgba(127, 127, 127, 0.25);
+  }
+  .environments-container > .sidebar .sections-container {
+    overflow-y: auto;
+  }
+  .environments-container > :not(.sidebar) {
+    width: 100% !important;
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  /* Preferences: the category column becomes a scrolling strip on top. */
+  .flex.flex-row.gap-2.h-full:has(> .tabs.tablist) {
+    flex-direction: column !important;
+  }
+  .flex.flex-row.gap-2.h-full > .tabs.tablist {
+    flex-direction: row !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    overflow-x: auto;
+    flex-shrink: 0;
+    scrollbar-width: none;
+  }
+  .flex.flex-row.gap-2.h-full > .tabs.tablist > .tab {
+    width: auto !important;
+    flex: none;
+    white-space: nowrap;
+  }
+  .flex.flex-row.gap-2.h-full:has(> .tabs.tablist) > :not(.tablist) {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-y: auto;
+  }
+
+  /* Runner: settings above the request list. */
+  div.flex.overflow-hidden.max-h-full:has(> .run-config-panel) {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  div.flex.overflow-hidden.max-h-full > .w-1\/2 {
+    width: 100% !important;
+    padding-right: 0 !important;
+    border-left: 0 !important;
+  }
+}
+
+/* ---------------------------------------------------------------- phones, <= 760 */
+@media (max-width: 760px) and (pointer: coarse) {
+  /* Title bar: keep the controls, drop the centred logo text. */
+  .app-titlebar .titlebar-center {
+    display: none !important;
+  }
+  .app-titlebar .titlebar-left {
+    min-width: 0;
+    overflow: hidden;
+  }
+
   .query-url-wrapper {
     padding-left: 0.5rem !important;
     padding-right: 0.5rem !important;
@@ -102,7 +222,7 @@
     padding-right: 0.5rem !important;
   }
 
-  /* Workspace home: one column. */
+  /* Workspace home: one column, quick actions wrap. */
   .overview-layout {
     flex-direction: column !important;
     overflow-y: auto;
@@ -115,5 +235,43 @@
   }
   .overview-layout > .overview-docs {
     min-height: 320px;
+  }
+  .quick-actions-buttons {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  /* Collection header: the environment picker shrinks before it spills. */
+  [data-testid="collection-header"] .header-actions {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  [data-testid="collection-header"] .environment-selector,
+  [data-testid="collection-header"] .current-environment {
+    min-width: 0;
+    max-width: 34vw;
+  }
+  [data-testid="collection-header"] .current-environment > * {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* Timeline rows: the URL gets its own line instead of a sliver. */
+  .tl-row {
+    grid-template-columns: 14px auto 50px 1fr auto !important;
+    row-gap: 2px;
+  }
+  .tl-row .tl-col-url {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    white-space: normal !important;
+    overflow-wrap: anywhere;
+    text-overflow: clip !important;
+  }
+
+  /* Dev tools: keep most of the screen for the request. */
+  .console-content {
+    max-height: 40dvh;
   }
 }

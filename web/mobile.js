@@ -15,6 +15,7 @@
   // Popups and dialogs opened from inside the drawer render elsewhere in the page.
   const OVERLAYS = '.tippy-box, .bruno-modal, [role="dialog"], [role="alertdialog"], bruno-web-ui';
 
+  let rowMenuOpenedAt = 0;
   const isOpen = () => root.classList.contains('bw-drawer-open');
   const setOpen = (open) => {
     root.classList.toggle('bw-drawer-open', open);
@@ -35,8 +36,25 @@
     }
     if (!isOpen()) return;
 
+    // Menus may render inside the drawer or elsewhere. An entry picked from a
+    // row's menu (settings, rename, run…) acts on the main area or opens a
+    // dialog: get the drawer out of the way. The menu's own expanded flag is
+    // already cleared when the tap's click arrives, so remember when a row
+    // menu was opened instead.
+    if (target.closest('.tippy-box')) {
+      if (Date.now() - rowMenuOpenedAt < 30000 && target.closest('.dropdown-item')) {
+        rowMenuOpenedAt = 0;
+        setTimeout(() => setOpen(false));
+      }
+      return;
+    }
+
     const drawer = document.querySelector(DRAWER);
     if (drawer && drawer.contains(target)) {
+      if (target.closest('.collection-actions, .menu-icon, [data-testid="collection-item-menu"]')) {
+        rowMenuOpenedAt = Date.now();
+        return;
+      }
       // Opening a request (not expanding a folder or opening a row's menu)
       // means the user is done with the tree.
       const row = target.closest('.collection-item-name');
@@ -55,4 +73,28 @@
 
   // Leaving phone layout (rotation, external display) closes the drawer.
   mq.addEventListener('change', () => { if (!mq.matches) setOpen(false); });
+
+  // Upstream's menus open in a fixed direction; near the bottom of a phone
+  // screen they run under the status bar. Cap each one at the space left
+  // below its top edge and let it scroll.
+  const STATUS_BAR = 32;
+  const fitPopup = (root) => {
+    const content = root.querySelector('.tippy-content');
+    if (!content) return;
+    content.style.maxHeight = '';
+    const top = content.getBoundingClientRect().top;
+    const room = window.innerHeight - STATUS_BAR - top;
+    if (content.scrollHeight > room) {
+      content.style.maxHeight = `${Math.max(120, room)}px`;
+      content.style.overflowY = 'auto';
+    }
+  };
+  new MutationObserver((records) => {
+    if (!mq.matches) return;
+    for (const r of records) {
+      for (const n of r.addedNodes) {
+        if (n.nodeType === 1 && n.matches('[data-tippy-root]')) requestAnimationFrame(() => requestAnimationFrame(() => fitPopup(n)));
+      }
+    }
+  }).observe(document.body || document.documentElement, { childList: true });
 })();

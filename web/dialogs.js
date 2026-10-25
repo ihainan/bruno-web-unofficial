@@ -67,6 +67,9 @@
     const cancel = () => finish(mode === 'save' ? { canceled: true } : { canceled: true, paths: [] });
 
     const status = h('div', { class: 'status', role: 'status' });
+    // Folder pickers: say exactly which folder the button will pick, since the
+    // shown folder and a highlighted row are easy to confuse.
+    const selection = h('div', { class: 'selection', 'aria-live': 'polite' });
     const setStatus = (text, isError) => {
       status.textContent = text || '';
       status.classList.toggle('error', !!isError);
@@ -91,6 +94,9 @@
       } else if (mode === 'dir') {
         confirmBtn.textContent = selected.size ? (params.buttonLabel || t('selectFolder')) : t('selectThisFolder');
         confirmBtn.disabled = !current;
+        const target = selected.size ? [...selected][0] : current;
+        selection.innerHTML = '';
+        if (target) selection.append(t('willSelect'), ' ', h('strong', { text: target }));
       } else {
         confirmBtn.textContent = params.buttonLabel || t('open');
         confirmBtn.disabled = selected.size === 0;
@@ -319,6 +325,7 @@
     const browser = h('div', {},
       h('div', { class: 'bar' }, upBtn, crumbs),
       list,
+      mode === 'dir' ? selection : null,
       status);
 
     const parts = [];
@@ -453,11 +460,13 @@
           h('div', { class: 'code' }, h('code', { text: callbackUrl }), copyBtn)) : null,
         h('label', { class: 'label', text: t('authPasteLabel') }),
         input),
+      // When the browser blocked the window, opening it (from this tap, which
+      // browsers allow) is the next step; otherwise it is pasting the address.
       footer: [
-        h('button', { class: 'btn ghost', onClick: () => openPopup() }, icon('external', 14), t('authReopen')),
+        h('button', { class: opened ? 'btn ghost' : 'btn primary', onClick: () => openPopup() }, icon('external', 14), t('authReopen')),
         h('div', { class: 'spacer' }),
         h('button', { class: 'btn', onClick: () => close() }, t('cancel')),
-        h('button', { class: 'btn primary', onClick: submit }, t('authSubmit'))
+        h('button', { class: opened ? 'btn primary' : 'btn', onClick: submit }, t('authSubmit'))
       ],
       onCancel: () => close()
     });
