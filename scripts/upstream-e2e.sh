@@ -20,4 +20,5 @@ ln -s "$UPSTREAM/node_modules" "$RUN/node_modules"
 
 cd "$RUN"
 export BRUNO_WEB_REPO="$REPO" BRUNO_WEB_UPSTREAM="$UPSTREAM"
+export NODE_OPTIONS="${NODE_OPTIONS:-} --require=$REPO/test/upstream-e2e/electron-path-stub.js"
 exec "$UPSTREAM/node_modules/.bin/playwright" test "$@"

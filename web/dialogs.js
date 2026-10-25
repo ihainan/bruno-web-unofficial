@@ -100,7 +100,7 @@
       if (!listing) return;
       const root = listing.root;
       const rel = listing.path.slice(root.length).split(sep).filter(Boolean);
-      const parts = [{ label: root, path: root }];
+      const parts = [{ label: basename(root.replace(/[\\/]+$/, '')) || root, path: root }];
       let acc = root;
       for (const r of rel) {
         acc = joinPath(acc, r);

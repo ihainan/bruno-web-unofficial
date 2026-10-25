@@ -57,6 +57,8 @@ class WebElectronApp extends EventEmitter {
       env: {
         ...process.env,
         ...this.env,
+        // The runner's electron stub must not reach the server, which uses the real shim.
+        NODE_OPTIONS: '',
         HOST: '127.0.0.1',
         PORT: String(port),
         BRUNO_WEB_DATA: this.dataDir,

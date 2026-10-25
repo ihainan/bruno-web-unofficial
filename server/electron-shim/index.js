@@ -617,6 +617,7 @@ const electron = tracked('electron', {
 module.exports = electron;
 module.exports.__bruno_web__ = {
   setHub,
+  getHub: () => hub,
   mainWindow,
   ipcMain,
   nativeTheme,

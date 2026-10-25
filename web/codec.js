@@ -58,8 +58,9 @@
     // Structured clone keeps undefined (array slots and object properties); JSON would drop it.
     if (raw === undefined && key !== '') return { [TAG]: 'undef' };
     if (value && typeof value === 'object' && !Array.isArray(value) && Object.prototype.hasOwnProperty.call(value, TAG)) {
-      // A user value that happens to use our tag key: escape it.
-      return { [TAG]: 'obj', v: Object.assign({}, value) };
+      // A user value that happens to use our tag key: carry it as entries so the
+      // escaped form does not contain the tag key again.
+      return { [TAG]: 'obj', v: Object.entries(value) };
     }
     return value;
   }
@@ -86,7 +87,7 @@
       case 'bigint': return BigInt(value.v);
       case 'num': return Number(value.v);
       case 'undef': return UNDEFINED;
-      case 'obj': return value.v;
+      case 'obj': return Object.fromEntries(value.v);
       default: return value;
     }
   }

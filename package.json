@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "BRUNO_WEB_DATA=./data BRUNO_WEB_AUTH=none node server/index.js",
-    "test": "node --test test/unit",
+    "test": "node --test test/unit/*.test.js",
     "test:e2e": "playwright test -c test/e2e/playwright.config.js"
   },
   "dependencies": {

@@ -18,8 +18,8 @@ const installTestHooks = (app, auth) => {
     // browser page cannot send this JSON body cross-origin without a preflight.
     if (!auth.userFor(req) || req.headers.origin) return res.status(403).json({ ok: false });
     try {
-      // eslint-disable-next-line no-eval
-      const fn = (0, eval)(`(${req.body.fn})`);
+      // eslint-disable-next-line no-new-func
+      const fn = new Function('require', `return (${req.body.fn});`)(require);
       const result = await fn(require('electron'), req.body.arg);
       res.json({ ok: true, result: result === undefined ? null : result });
     } catch (err) {
