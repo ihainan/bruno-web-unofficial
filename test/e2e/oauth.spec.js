@@ -26,16 +26,6 @@ for (const grant of ['authorization_code', 'implicit']) {
     const popupPromise = page.waitForEvent('popup');
     await page.getByTestId('send-arrow-icon').click();
     const popup = await popupPromise;
-    if (process.env.DEBUG_OAUTH) {
-      popup.on('request', (r) => console.log('REQ', r.method(), r.url()));
-      popup.on('response', (r) => console.log('RES', r.status(), r.url()));
-      popup.on('requestfailed', (r) => console.log('FAIL', r.url(), r.failure() && r.failure().errorText));
-      popup.on('console', (m) => console.log('POPUP CONSOLE', m.type(), m.text()));
-      await popup.waitForTimeout(4000);
-      console.log('POPUP URL', popup.isClosed() ? '(closed)' : popup.url());
-      if (!popup.isClosed()) console.log('POPUP TEXT', await popup.locator('body').innerText());
-      console.log('PANEL', await page.locator('bruno-web-ui .panel').innerText().catch(() => 'none'));
-    }
     await popup.waitForEvent('close', { timeout: 20000 });
 
     await expect(page.getByTestId('response-status-code')).toContainText('200', { timeout: 20000 });

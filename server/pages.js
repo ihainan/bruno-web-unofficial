@@ -163,7 +163,7 @@ const oauthCallbackPage = () => page('Bruno', `
     none: zh ? '没有进行中的授权' : 'No authorization in progress',
     noneDetail: zh ? '请先在 Bruno 中发起 OAuth 2.0 授权，再重试。' : 'Start the OAuth 2.0 flow from Bruno, then try again.',
     login: zh ? '无法提交授权结果' : 'Could not hand the result to Bruno',
-    loginDetail: zh ? '请确认已在这个浏览器里登录 Bruno，然后在 Bruno 的登录面板中粘贴本页地址：' : 'Make sure you are signed in to Bruno in this browser, then paste this page\'s address into Bruno\'s sign-in panel:'
+    loginDetail: zh ? '请确认已在这个浏览器里登录 Bruno，然后在 Bruno 的登录面板中粘贴本页地址：' : "Make sure you are signed in to Bruno in this browser, then paste this page's address into Bruno's sign-in panel:"
   };
   var title = document.getElementById('t');
   var detail = document.getElementById('d');
