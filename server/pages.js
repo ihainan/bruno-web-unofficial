@@ -144,7 +144,7 @@ const loginPage = (error) => page('Bruno', `
     document.getElementById('label').textContent = '密码';
     document.getElementById('submit').textContent = '登录';
     var e = document.querySelector('.error');
-    if (e) e.textContent = ({ 'Wrong password': '密码错误', 'Too many attempts, try again in 15 minutes': '尝试次数过多，请 15 分钟后再试' })[e.textContent] || e.textContent;
+    if (e) e.textContent = ({ 'Wrong password': '密码错误', 'Too many attempts, try again in 15 minutes': '尝试次数过多，请 15 分钟后再试', 'Sign-in failed, please try again': '登录失败，请重试' })[e.textContent] || e.textContent;
   }
 </script>`);
 

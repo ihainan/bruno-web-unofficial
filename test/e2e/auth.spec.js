@@ -35,6 +35,24 @@ test('the app needs a login, and the socket only accepts the logged-in page', as
   expect(await tryWs(wsUrl, { Origin: 'http://evil.example', Cookie: cookie })).toBe(403);
   expect(await tryWs(wsUrl, { Cookie: cookie })).toBe(403);
 
+  // Extra form fields (some browsers and extensions add them) must not break sign-in,
+  // and errors never show a stack trace.
+  const padded = await fetch(`${srv.base}/bruno-web/login`, {
+    method: 'POST',
+    redirect: 'manual',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({ password: PASSWORD, extra: 'x'.repeat(20000) })
+  });
+  expect(padded.status).toBe(303);
+  const tooBig = await fetch(`${srv.base}/bruno-web/login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `password=x&extra=${'x'.repeat(400000)}`
+  });
+  const tooBigText = await tooBig.text();
+  expect(tooBigText).not.toMatch(/at \w+ \(|node_modules/);
+  expect(tooBigText).toContain('<form');
+
   const api = await fetch(`${srv.base}/bruno-web/api/fs/list`);
   expect(api.status).toBe(401);
   const evaluate = await fetch(`${srv.base}/bruno-web/test/evaluate`, { method: 'POST' });

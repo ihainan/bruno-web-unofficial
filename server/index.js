@@ -83,7 +83,8 @@ const main = async () => {
     res.setHeader('Content-Security-Policy', pages.LOGIN_CSP);
     res.type('html').send(pages.loginPage());
   });
-  app.post('/bruno-web/login', express.urlencoded({ extended: false, limit: '4kb' }), (req, res) => {
+  // Generous limit: browsers and extensions may add form fields; only `password` is read.
+  app.post('/bruno-web/login', express.urlencoded({ extended: false, limit: '256kb' }), (req, res) => {
     if (auth.mode !== 'password') return res.redirect('/');
     const result = auth.login(req, req.body && req.body.password);
     if (!result.ok) {
@@ -228,6 +229,22 @@ const main = async () => {
   app.get(['/', '/index.html'], sendIndex);
   app.use(express.static(APP_DIST, { index: false }));
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
+
+  // Never show a stack trace to the browser. Body-parser errors (size, bad
+  // encoding) are client errors; anything else is ours.
+  // eslint-disable-next-line no-unused-vars
+  app.use((err, req, res, next) => {
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) console.error('[bruno-web] request failed', req.method, req.path, err);
+    else console.warn(`[bruno-web] ${req.method} ${req.path}: ${err.message} (content-type ${req.headers['content-type'] || '-'}, length ${req.headers['content-length'] || '-'})`);
+    if (res.headersSent) return;
+    if (req.path === '/bruno-web/login') {
+      res.status(status);
+      res.setHeader('Content-Security-Policy', pages.LOGIN_CSP);
+      return res.type('html').send(pages.loginPage('Sign-in failed, please try again'));
+    }
+    res.status(status).json({ error: status >= 500 ? 'Internal error' : err.message });
+  });
 
   const server = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true, maxPayload: config.maxMessageBytes });

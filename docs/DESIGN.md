@@ -354,3 +354,38 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 
 端到端（Playwright + 真实服务进程 + 本地测试服务）新增：GraphQL、WebSocket、SSE 流式响应、请求取消、YAML 格式集合、全局环境、集合运行器、Cookie 写入与查看、Mock Server 启动并被请求、OpenAPI 文件导入、Postman 导出下载、ZIP 导出下载、断线期间发起的请求在恢复后完成且只执行一次、缓冲溢出后整页刷新、开发者模式下 `bru.getProcessEnv('BRUNO_WEB_PASSWORD')` 读不到。
 gRPC、Git 远程、AI 助手、客户端证书需要外部依赖，一期只做冒烟（通道可达、无未实现 API），不做完整流程。
+
+## 12. 实现与验证（2026-10-25）
+
+### 12.1 与方案的偏差
+
+| 方案原文 | 实际实现 | 原因 |
+| --- | --- | --- |
+| §4.2 整包替换 `electron-store` | 不替换，只替换 `electron` | `electron-store` 只用到 `app.getPath/getVersion` 和 `ipcMain`，垫片已覆盖 |
+| §4.5 新页面接入时关闭全部 watcher | 按桌面版「重载窗口」处理，不关 watcher | 见 §11 第 7 条；上游 mount 服务支持重载 |
+| §4.8 `customElements.define('webview')` | 包装 `document.createElement` 就地给 `webview` 元素装方法 | 自定义元素名必须带连字符 |
+| §4.9 只拦脚本运行时 | 另拦 `renderer:install-postman-packages` | npm 生命周期脚本同样在服务器上执行代码 |
+| — | `main:force-quit` 改为刷新页面；主窗口 `close()` 触发上游的「未保存修改」流程；关闭标签页时有未保存请求则由浏览器询问 | 上游这里会 `process.exit()`，网页版不能让页面上的按钮停掉服务 |
+| — | 加载 QuickJS 沙箱模块的那一刻临时声明 `process.versions.electron` | bruno-js 据此区分「应用」与「命令行」，命令行模式会吞掉引擎崩溃诊断；全局声明会改变 `commander`、`open` 的行为 |
+| — | 页面里的 `<webview>` 向服务端登记，`webContents.getAllWebContents()` 可列出并在其中执行脚本 | 上游 Apps 测试以此驱动内嵌页；也让主进程对内嵌页的操作与桌面版一致 |
+
+### 12.2 代码审查（GPT，xhigh，服务端与浏览器端各一轮）
+
+两轮共 34 条，逐条复现或对照代码核实后：33 条成立并已修复，1 条不修（浏览器端第 7 条：按事件循环划分上传批次不能覆盖「逐个异步取路径」的多文件导入——该场景依赖子目录结构，浏览器本来就做不到，见差异表）。修复要点：畸形 Cookie 导致进程退出、格式错误的密码哈希可被任意密码通过、登录 shell 环境把已清除的 `BRUNO_WEB_*` 重新导入、接管后旧页面的结果被新页面同编号请求接走、重连握手前发出的新消息导致旧消息被去重丢弃、覆盖上传失败丢原文件、悬空符号链接绕出根目录、发送积压无上限等。每条修复都补了单元测试或端到端测试。
+
+### 12.3 测试结果
+
+| 测试 | 结果 |
+| --- | --- |
+| 单元测试（编码、会话层投递语义、路径约束、认证、生成页面的脚本语法） | 38/38 |
+| 网页版专属端到端（文件对话框、刷新与断线恢复、接管、50 MB 响应、HTML 预览、导入导出下载、OAuth2 授权码与隐式、登录与 WebSocket 拒绝、安全默认值） | 12/12 |
+| 上游 Bruno 整套端到端测试（原样运行，`scripts/upstream-e2e.sh`） | 见下 |
+| Docker 镜像（构建、uid 1000 运行、登录后自检 8 项、未登录 401、免登录对外监听拒绝启动） | 通过 |
+
+上游整套测试的未通过项，按原因：
+
+| 测试 | 原因 | 处理 |
+| --- | --- | --- |
+| `apps/apps-secure-context`（3） | 断言文档协议为 Electron 专有的 `bruno-app:`、两个 App 的 origin 不同；网页版是 http(s) 与不透明源 `null` | 已知差异。实质检查（安全上下文、`crypto.subtle`、App 之间互相隔离、敏感权限被拒）单独验证通过；剪贴板写权限在 iframe 中查询为 `prompt` 而非 `granted` |
+| `import/wsdl` 多文件 | 依赖放在子目录，浏览器文件选择只交出所选文件 | 已知差异，写入 README |
+| `proxy/pac` | 本机 18888 端口被系统已有服务占用 | 环境冲突，与网页版无关 |
