@@ -252,4 +252,39 @@ test.describe('on a phone', () => {
     // The drawer did not touch Bruno's own collapsed setting, which other devices share.
     expect(await toggle.getAttribute('aria-label')).toBe(collapsedLabel);
   });
+  test('row menus need no hover, dialogs fit the screen, tables scroll instead of squeezing', async ({ page, server, echo }) => {
+    const srv = await server();
+    writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: `${echo.url}/phone?a=1` }]);
+    await openApp(page, srv);
+    await page.getByTestId('toggle-sidebar-button').tap();
+    await page.getByTestId('collections-header-add-menu').tap();
+    await page.locator('.tippy-box .dropdown-item').filter({ hasText: /open collection/i }).first().tap();
+    await webDialog(page).getByRole('option', { name: 'phone' }).tap();
+    await webDialog(page).getByRole('button', { name: /select this folder/i }).tap();
+    await collectionRow(page, 'phone').tap();
+
+    // The request's "…" menu is there without hovering, and its dialog fits a 390 px screen.
+    const row = page.locator('aside .collection-item-name').filter({ hasText: 'echo-get' });
+    await expect(row.locator('.menu-icon')).toBeVisible();
+    await row.locator('.menu-icon').tap();
+    await page.locator('.tippy-box .dropdown-item').filter({ hasText: /generate code/i }).first().tap();
+    const card = page.locator('.bruno-modal-card');
+    await expect(card).toBeVisible();
+    const box = await card.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(box.y + box.height).toBeLessThanOrEqual(844);
+    await page.keyboard.press('Escape');
+    await expect(card).toBeHidden();
+
+    // The params table keeps readable columns and scrolls sideways inside its box.
+    // (Picking a menu item closed the drawer.)
+    await expect(page.locator('html')).not.toHaveClass(/bw-drawer-open/);
+    await page.getByTestId('toggle-sidebar-button').tap();
+    await row.tap();
+    const table = page.locator('section.request-pane .table-container').first();
+    await expect(table).toBeVisible();
+    expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+  });
 });
