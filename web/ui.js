@@ -120,6 +120,7 @@ svg { display: block; flex: none; }
   .seg button { height: auto; min-height: 36px; padding: 6px 12px; text-align: left; white-space: normal; }
   .seg button + button { border-left: 0; border-top: 1px solid var(--border-strong); }
   .toasts { left: 8px; right: 8px; bottom: 32px; max-width: none; }
+  .panel { left: 8px; right: 8px; bottom: 32px; width: auto; max-height: calc(100dvh - 48px); overflow-y: auto; }
   .toast { flex-direction: column; gap: 6px; }
   .toast .actions { align-self: flex-end; }
   .modal { max-height: calc(100dvh - 16px); }

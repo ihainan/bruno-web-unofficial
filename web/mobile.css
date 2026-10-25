@@ -80,7 +80,7 @@
     min-width: 0 !important;
     width: calc(100vw - 16px) !important;
     max-width: calc(100vw - 16px) !important;
-    margin-top: 8px !important;
+    margin: 8px !important; /* upstream: 3vh 10vw, which shrinks the card */
     max-height: calc(100dvh - 16px);
     display: flex;
     flex-direction: column;
@@ -125,6 +125,12 @@
   }
   .console-header .console-controls {
     flex-shrink: 0;
+  }
+
+  /* Global search: arrow/enter/esc hints mean nothing without a keyboard
+     (tapping outside the panel closes it). */
+  .command-k-footer {
+    display: none !important;
   }
 }
 
@@ -179,11 +185,10 @@
   }
   .flex.flex-row.gap-2.h-full > .tabs.tablist {
     flex-direction: row !important;
+    flex-wrap: wrap;
     width: 100% !important;
     min-width: 0 !important;
-    overflow-x: auto;
     flex-shrink: 0;
-    scrollbar-width: none;
   }
   .flex.flex-row.gap-2.h-full > .tabs.tablist > .tab {
     width: auto !important;
@@ -276,8 +281,61 @@
     text-overflow: clip !important;
   }
 
+  /* Generate code: the language, library buttons and copy controls wrap
+     instead of running off the dialog's right edge. */
+  .code-generator .toolbar,
+  .code-generator .left-controls,
+  .code-generator .library-options {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  /* Collection settings overview: details and docs in one column. */
+  .collection-settings-content .grid.grid-cols-5 {
+    grid-template-columns: minmax(0, 1fr) !important;
+    height: auto !important;
+  }
+  .collection-settings-content .grid.grid-cols-5 > * {
+    grid-column: auto !important;
+    overflow: visible !important;
+  }
+
+  /* Runner results: the result list above the selected response. */
+  div.flex.gap-4.overflow-hidden:has(> .w-\[50\%\]) {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  div.flex.gap-4.overflow-hidden:has(> .w-\[50\%\]) > * {
+    width: 100% !important;
+    flex: none !important;
+    overflow: visible !important;
+  }
+
+  /* Terminal tab: the session list goes above the terminal. */
+  .terminal-content {
+    flex-direction: column !important;
+  }
+  .terminal-content > .terminal-sessions-sidebar {
+    width: 100% !important;
+    max-height: 30%;
+    border-right: 0 !important;
+  }
+  .terminal-content > .terminal-display-container {
+    width: 100% !important;
+    min-height: 0;
+    flex: 1 1 auto;
+  }
+
   /* Dev tools: keep most of the screen for the request. */
   .console-content {
     max-height: 40dvh;
+  }
+}
+
+/* ---------------------------------------------------------------- small phones, <= 430 */
+@media (max-width: 430px) and (pointer: coarse) {
+  /* Status bar: icons only; each button keeps its aria-label. */
+  .status-bar .status-bar-button .console-label {
+    display: none;
   }
 }
