@@ -1,0 +1,21 @@
+/* Electron's <webview> lays its guest out as a flex child filling the element. */
+webview {
+  display: flex;
+  overflow: hidden;
+}
+
+/* A browser tab has no OS window controls: drop Bruno's minimize / maximize /
+   close buttons and the space reserved for the macOS traffic lights. */
+.app-titlebar .window-controls {
+  display: none !important;
+}
+.app-titlebar.os-mac .titlebar-content {
+  padding-left: 6px;
+}
+.app-titlebar.os-mac .titlebar-left {
+  margin-left: 0;
+}
+.app-titlebar.os-windows .titlebar-content,
+.app-titlebar.os-linux .titlebar-content {
+  padding-right: 6px;
+}

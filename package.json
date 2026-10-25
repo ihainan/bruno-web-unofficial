@@ -1,0 +1,23 @@
+{
+  "name": "bruno-web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Run the Bruno API client in a browser, backed by the unmodified Bruno main-process code on Node.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22.13"
+  },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "BRUNO_WEB_DATA=./data BRUNO_WEB_AUTH=none node server/index.js",
+    "test": "node --test test/unit",
+    "test:e2e": "playwright test -c test/e2e/playwright.config.js"
+  },
+  "dependencies": {
+    "express": "^4.21.2",
+    "ws": "^8.18.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.62.1"
+  }
+}
