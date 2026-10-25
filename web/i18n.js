@@ -42,6 +42,7 @@
     popupBlocked: 'The browser blocked a new window.',
     openLink: 'Open link',
     download: 'Download {name}',
+    downloadShort: 'Download',
     serverPath: 'Server path',
     item: 'item',
     items: 'items'
@@ -88,6 +89,7 @@
     popupBlocked: '浏览器拦截了新窗口。',
     openLink: '打开链接',
     download: '下载 {name}',
+    downloadShort: '下载',
     serverPath: '服务器路径',
     item: '项',
     items: '项'

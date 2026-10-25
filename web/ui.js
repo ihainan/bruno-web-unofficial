@@ -52,7 +52,9 @@ svg { display: block; flex: none; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--sub-2); padding: 0 8px; }
 .btn.ghost:hover { background: var(--surface); color: var(--text); }
 .btn.icon { width: 28px; padding: 0; }
-.btn:focus-visible, .row:focus-visible, .input:focus-visible, .crumb:focus-visible { outline: 2px solid var(--primary); outline-offset: 1px; }
+.btn:focus-visible, .crumb:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+/* Rows sit flush against the list's clipped edge: draw their ring inside. */
+.row:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; }
 
 .input { width: 100%; height: 30px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--bg); }
 .input:focus { border-color: var(--primary); outline: none; }

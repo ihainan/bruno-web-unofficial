@@ -84,7 +84,7 @@
 
     const updateConfirm = () => {
       if (mode === 'save') {
-        confirmBtn.textContent = saveTarget === 'download' ? t('saveDownload') : t('save');
+        confirmBtn.textContent = saveTarget === 'download' ? t('downloadShort') : t('save');
         confirmBtn.disabled = !nameInput.value.trim() || (saveTarget === 'server' && !current);
       } else if (mode === 'dir') {
         confirmBtn.textContent = selected.size ? (params.buttonLabel || t('selectFolder')) : t('selectThisFolder');
