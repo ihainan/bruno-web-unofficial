@@ -68,9 +68,32 @@
     if (state) state.onMessage(data);
   });
 
+  // Guests are reported to the server so the main process can address them
+  // like Electron guest webContents (webContents.getAllWebContents()).
+  let guestSeq = 0;
+  const byId = new Map(); // id -> element
+  let reporter = () => {};
+  const report = (op, info) => {
+    try { reporter(op, info); } catch (e) {}
+  };
+
+  const forget = (node) => {
+    if (node.nodeType !== 1) return;
+    const found = node.matches && node.matches('webview') ? [node] : [...node.querySelectorAll('webview')];
+    for (const el of found) {
+      const state = el.__brunoWebview;
+      if (!state || el.isConnected || !byId.has(state.id)) continue;
+      byId.delete(state.id);
+      report('remove', { id: state.id });
+    }
+  };
+  new MutationObserver((records) => {
+    for (const r of records) for (const n of r.removedNodes) forget(n);
+  }).observe(document.documentElement, { childList: true, subtree: true });
+
   const upgrade = (el) => {
     if (el.__brunoWebview) return;
-    const state = { frame: null, loadToken: 0, pending: new Map() };
+    const state = { id: ++guestSeq, frame: null, loadToken: 0, pending: new Map() };
     el.__brunoWebview = state;
 
     const frame = document.createElement('iframe');
@@ -99,6 +122,8 @@
       }
       if (token !== state.loadToken) return;
       frame.src = url;
+      byId.set(state.id, el);
+      report('set', { id: state.id, url: el.getAttribute('src') || '' });
     };
 
     state.onMessage = (data) => {
@@ -127,7 +152,7 @@
     el.openDevTools = () => {};
     el.closeDevTools = () => {};
     el.isDevToolsOpened = () => false;
-    el.getWebContentsId = () => -1;
+    el.getWebContentsId = () => state.id;
 
     new MutationObserver(() => load()).observe(el, { attributes: true, attributeFilter: ['src'] });
 
@@ -143,5 +168,16 @@
     return el;
   };
 
-  window.BrunoWebWebview = { upgrade };
+  window.BrunoWebWebview = {
+    upgrade,
+    setReporter(fn) {
+      reporter = fn;
+      for (const [id, el] of byId) report('set', { id, url: el.getAttribute('src') || '' });
+    },
+    exec(id, code) {
+      const el = byId.get(id);
+      if (!el) return Promise.reject(new Error(`no webview ${id}`));
+      return el.executeJavaScript(code);
+    }
+  };
 })();

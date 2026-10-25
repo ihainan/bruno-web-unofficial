@@ -585,6 +585,22 @@ const clipboard = {
 // The main window: one per process, id 1 (authorizeUserInWindow relies on that).
 
 const mainWindow = new BrowserWindow({}, 'main');
+mainWindow.webContents.getType = () => 'window';
+
+// Guest pages: the <webview> stand-ins on the active page, as reported by it.
+const guestContents = (guest) => ({
+  id: guest.id + 1000,
+  getType: () => 'webview',
+  getURL: () => guest.url,
+  isDestroyed: () => !hub || !hub.guests.has(guest.id),
+  executeJavaScript: (code) => requireHub('Guest pages').execInGuest(guest.id, code)
+});
+
+const webContents = tracked('webContents', {
+  getAllWebContents: () => [mainWindow.webContents, ...(hub ? hub.listGuests().map(guestContents) : [])],
+  getFocusedWebContents: () => mainWindow.webContents,
+  fromId: (id) => webContents.getAllWebContents().find((wc) => wc.id === id) || null
+});
 
 let upstreamJson = null;
 const safeJsonRoundTrip = (value) => {
@@ -607,6 +623,7 @@ const electron = tracked('electron', {
   MenuItem: class MenuItem {},
   globalShortcut,
   webUtils,
+  webContents,
   clipboard,
   // Renderer-only modules: undefined in the main process, which is exactly what
   // electron-store checks to decide it is running in main.

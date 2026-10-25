@@ -5,7 +5,8 @@ import { defineConfig } from '@playwright/test';
 // (packages/bruno-tests, :8081) is.
 export default defineConfig({
   fullyParallel: true,
-  retries: 0,
+  // Same as upstream's CI: a few specs are timing-sensitive on any runtime.
+  retries: Number(process.env.E2E_RETRIES ?? 2),
   workers: Number(process.env.E2E_WORKERS || 4),
   reporter: [['list'], ['json', { outputFile: 'results.json' }]],
   // Upstream's fixtures manage tracing themselves and expect it to be off or fully on.

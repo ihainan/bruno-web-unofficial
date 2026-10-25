@@ -51,6 +51,7 @@ class Hub {
     this.rpcSeq = 0;
     this.pendingRpcs = new Map(); // id -> { resolve, reject, method, cancelValue }
     this.authWindows = new Map(); // id -> BrowserWindow
+    this.guests = new Map(); // <webview> id on the page -> { url }
     this.pageLoaded = false;
   }
 
@@ -110,6 +111,7 @@ class Hub {
       try { win.close(); } catch (e) {}
     }
     this.authWindows.clear();
+    this.guests.clear();
   }
 
   // ------------------------------------------------------------------ outbound
@@ -207,6 +209,10 @@ class Hub {
         return;
       case 'theme':
         this.policy.onTheme(msg.dark);
+        return;
+      case 'webview':
+        if (msg.op === 'set') this.guests.set(msg.guest, { url: String(msg.url || '') });
+        else if (msg.op === 'remove') this.guests.delete(msg.guest);
         return;
       case 'auth-nav':
         this.deliverAuthNavigation(msg.window, msg.url);
@@ -355,6 +361,16 @@ class Hub {
       checkboxChecked: options.checkboxChecked
     }, { response: options.cancelId ?? 0, checkboxChecked: false });
     return { response: (result && result.response) ?? 0, checkboxChecked: !!(result && result.checkboxChecked) };
+  }
+
+  // Guest documents (<webview> on the page), for the shim's webContents module.
+  listGuests() {
+    return [...this.guests].map(([id, g]) => ({ id, url: g.url }));
+  }
+
+  execInGuest(id, code) {
+    if (!this.guests.has(id)) return Promise.reject(new Error('The guest page is gone'));
+    return this.request('webview-exec', { id, code: String(code) }, undefined);
   }
 
   openExternal(url) {

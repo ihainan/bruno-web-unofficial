@@ -65,8 +65,13 @@
 
   const isOpen = () => ws && ws.readyState === WebSocket.OPEN;
 
+  const debug = settings.debugIpc
+    ? (dir, msg) => console.debug(`[bruno-web ipc] ${dir} ${msg.t} ${msg.ch || msg.method || ''} #${msg.id != null ? msg.id : ''}${msg.seq != null ? ` seq ${msg.seq}` : ''}`)
+    : () => {};
+
   const post = (msg) => {
     msg.id = ++nextId;
+    debug('->', msg);
     const text = encode(msg);
     outbox.push({ id: msg.id, text });
     if (isOpen()) ws.send(text);
@@ -158,6 +163,7 @@
 
   // --------------------------------------------------------------- inbound
   const handleMessage = (msg) => {
+    debug('<-', msg);
     if (msg.seq != null) {
       if (msg.seq <= lastSeq) return; // replayed twice
       lastSeq = msg.seq;
@@ -275,6 +281,7 @@
       if (method === 'dialog-open') value = await dialogs.openDialog(params);
       else if (method === 'dialog-save') value = await dialogs.saveDialog(params);
       else if (method === 'message-box') value = await dialogs.messageBox(params);
+      else if (method === 'webview-exec') value = await window.BrunoWebWebview.exec(params.id, params.code);
       else throw new Error(`unknown request ${method}`);
       respond(id, true, value);
     } catch (err) {
@@ -404,6 +411,8 @@
     getFilePath,
     openExternal: (url) => dialogs.openExternal(url)
   };
+
+  window.BrunoWebWebview.setReporter((op, { id, url }) => post({ t: 'webview', op, guest: id, url }));
 
   ui.connectionState('connecting');
   connect();

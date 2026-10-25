@@ -203,6 +203,7 @@ const main = async () => {
       user: req.user,
       terminal: config.enableTerminal,
       playwright: config.playwright,
+      debugIpc: config.debugIpc,
       developerMode: config.allowDeveloperMode
     };
     res.setHeader('Cache-Control', 'no-store');

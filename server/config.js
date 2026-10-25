@@ -52,6 +52,8 @@ const config = {
   // (its electronApp.evaluate). Refused unless auth is off and we listen on loopback.
   testHooks: bool(process.env.BRUNO_WEB_TEST_HOOKS, false),
   playwright: process.env.PLAYWRIGHT === 'true',
+  // Log every IPC message in the browser console (troubleshooting).
+  debugIpc: bool(process.env.BRUNO_WEB_DEBUG_IPC, false),
 
   allowDeveloperMode: bool(process.env.BRUNO_WEB_ALLOW_DEVELOPER_MODE, false),
   enableTerminal: bool(process.env.BRUNO_WEB_ENABLE_TERMINAL, false),

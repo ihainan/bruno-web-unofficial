@@ -44,7 +44,11 @@ class WebElectronApp extends EventEmitter {
   private dataDir = '';
   private stderr = '';
 
-  constructor(private browser: Browser, private env: Record<string, string | undefined>) {
+  constructor(
+    private browser: Browser,
+    private env: Record<string, string | undefined>,
+    private onRevive: (app: WebElectronApp) => void
+  ) {
     super();
   }
 
@@ -70,7 +74,8 @@ class WebElectronApp extends EventEmitter {
         // Same capabilities as the desktop app, which is what the suite tests.
         BRUNO_WEB_ALLOW_DEVELOPER_MODE: 'true',
         BRUNO_WEB_ENABLE_TERMINAL: 'true',
-        BRUNO_WEB_BLOCK_METADATA: 'false'
+        BRUNO_WEB_BLOCK_METADATA: 'false',
+        BRUNO_WEB_DEBUG_IPC: process.env.E2E_PAGE_LOG ? 'true' : 'false'
       } as NodeJS.ProcessEnv,
       stdio: ['ignore', 'pipe', 'pipe']
     });
@@ -91,7 +96,21 @@ class WebElectronApp extends EventEmitter {
     return this.proc;
   }
 
+  lastUsed = Date.now();
+  retired = false;
+
+  // A retired app (see createWebElectron) that is used again is started
+  // anew on the same user data — what restarting the desktop app does.
+  private async revive() {
+    this.lastUsed = Date.now();
+    if (!this.retired) return;
+    this.retired = false;
+    this.onRevive(this);
+    await this.start();
+  }
+
   async evaluate(fn: Function | string, arg?: unknown) {
+    await this.revive();
     const res = await fetch(`${this.base}/bruno-web/test/evaluate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -107,21 +126,29 @@ class WebElectronApp extends EventEmitter {
   }
 
   async context() {
+    await this.revive();
     if (!this.ctx) {
       this.ctx = await this.browser.newContext({
         viewport: { width: 1280, height: 768 },
-        acceptDownloads: true,
-        permissions: ['clipboard-read', 'clipboard-write']
+        acceptDownloads: true
       });
     }
     return this.ctx;
   }
 
   firstWindow() {
+    this.lastUsed = Date.now();
     if (!this.pagePromise) {
       this.pagePromise = (async () => {
+        await this.revive();
         const ctx = await this.context();
         const page = await ctx.newPage();
+        // E2E_PAGE_LOG=<file>: append the page's console output and errors, for debugging.
+        if (process.env.E2E_PAGE_LOG) {
+          const out = (line: string) => fs.appendFileSync(process.env.E2E_PAGE_LOG as string, `${new Date().toISOString()} ${this.base} ${line}\n`);
+          page.on('console', (m) => out(`[${m.type()}] ${m.text().slice(0, 500)}`));
+          page.on('pageerror', (e) => out(`[pageerror] ${e.message}`));
+        }
         await page.goto(`${this.base}/`);
         this.page = page;
         this.emit('window', page);
@@ -156,15 +183,38 @@ class WebElectronApp extends EventEmitter {
   }
 }
 
+// Upstream's fixtures close launched apps only when the worker ends (`newPage`
+// launches one per test). An Electron app that nobody uses costs little, but
+// each of ours is a ~260 MB server process, and a long worker would pile up
+// dozens of them. Keep the worker's first app (the shared `electronApp`) and
+// the most recently used few; older ones belong to finished tests.
+const MAX_IDLE_APPS = Number(process.env.E2E_MAX_APPS_PER_WORKER || 3);
+
 export const createWebElectron = (playwright: any) => {
   let browser: Browser | null = null;
   const apps = new Set<WebElectronApp>();
+  let first: WebElectronApp | null = null;
+
+  const trim = async () => {
+    const others = [...apps].filter((a) => a !== first).sort((a, b) => b.lastUsed - a.lastUsed);
+    for (const stale of others.slice(MAX_IDLE_APPS)) {
+      apps.delete(stale);
+      await stale.close();
+      stale.retired = true;
+    }
+  };
+
   return {
     async launch({ env = {} }: { args?: string[]; env?: Record<string, string | undefined> } = {}) {
       if (!browser) browser = await playwright.chromium.launch();
-      const app = new WebElectronApp(browser!, env);
+      await trim();
+      const app = new WebElectronApp(browser!, env, (revived) => {
+        apps.add(revived);
+        trim().catch(() => {});
+      });
       await app.start();
       apps.add(app);
+      if (!first) first = app;
       return app;
     },
     async dispose() {
