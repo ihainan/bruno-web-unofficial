@@ -321,3 +321,36 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 | 单活动页面限制影响习惯开多个标签页的人 | 体验 | 明确遮罩提示；二期可评估「只读旁观」 |
 | 大集合首次加载时事件量大，WS 背压 | 卡顿 | 服务端按 `bufferedAmount` 节流，事件批量打包 |
 | 服务器出站访问面 | 内网可达 | §4.9 网络策略 + 元数据地址屏蔽；按用户隔离容器 |
+
+## 11. GPT 审查结论与方案修订（2026-10-25，gpt-6.1-sol / xhigh）
+
+审查全文 21 条，逐条对照上游源码核实后的处理如下。正文与本节冲突时以本节为准。
+
+| # | 问题 | 核实 | 处理 |
+| --- | --- | --- | --- |
+| 1 | `renderer:install-postman-packages` 会跑 `npm install`，依赖的生命周期脚本可在服务器上执行代码 | 属实（`ipc/collection.js:2549`、`utils/install-packages.js:115`） | 与开发者模式同属「在服务器上执行代码」，未开启开发者模式时该通道直接拒绝 |
+| 2 | 安全模式脚本 `bru.getProcessEnv()` 能读到整个 `process.env`，含本服务密码与主密钥 | 属实（`store/process-env.js:20` 每次实时读取） | 配置读入后立刻从 `process.env` 删除全部 `BRUNO_WEB_*`；部署文档要求不要把平台凭据放进容器环境变量。§4.6 的边界表述改为：根目录只限制文件对话框，进程能读该 uid 可读的一切文件，隔离靠容器 |
+| 3 | 自定义元素名必须带连字符，`customElements.define('webview')` 会抛错 | 属实 | 改为包装 `document.createElement`：创建 `webview` 元素时就地装上 `executeJavaScript` 等方法，并在其内部放一个沙箱 iframe；属性变化用 MutationObserver 跟踪 |
+| 4 | 前端路径模块按浏览器系统选 `win32/posix`，Windows 浏览器连 Linux 服务器会拼出反斜杠路径 | 属实（`utils/common/path.js:44`） | 服务器非 Windows 时，bridge 把 Windows 浏览器的 `navigator.userAgent/platform` 改报为 Linux（`platform` 库据此判断）；快捷键在两者上都是 Ctrl，不受影响。Windows 服务器 + 非 Windows 浏览器不支持（容器部署不会出现） |
+| 5 | 垫片缺 `fromWebContents/getAllWindows/isDestroyed/addRecentDocument`、`process.resourcesPath` | 属实 | 实现中已补齐；加载验证（219 个处理函数注册、未实现 API 为 0）已通过 |
+| 6 | 超时重连/缓冲溢出/接管后页面里的 React 状态仍在，不能当新页面 | 属实 | 无法连续重放时页面**强制整页刷新**；「在这里继续」同样整页刷新 |
+| 7 | 关 watcher 不是完整重置，旧页面的异步任务会影响新页面 | 部分属实 | **放弃「新页面时关闭 watcher」**：上游 mount 服务明确支持渲染进程重载（`services/mount/manager.js:76` "renderer reload — pull fresh state from cache and re-emit"），关 watcher 反而会让重载分支不再建监听。新页面按桌面版「重载窗口」处理，主进程状态保留，旧请求的迟到结果与桌面版重载时行为一致。退出时补发 `window-all-closed`（gRPC 清理挂在它上面）。不采纳「每页一个子进程」 |
+| 8 | 断线时已发出但服务端未收到的 invoke 会永久挂起；简单重发会重复执行 | 属实 | 服务端按页面记账（id → 已收到/已完成），每条结果带序号；重连成功后页面提交未决 id 清单，服务端回复哪些从未收到，页面只重发这些；服务端对重复 id 去重。`send` 同样带 id 记账 |
+| 9 | 回调页需要登录才能进；隐式授权 token 在 `#` 后不会发给服务器 | 属实 | 回调地址 GET 只返回静态页面（免登录），页面读取完整地址（含 `#`）后用同源 POST 提交，POST 需要登录 Cookie（同源 fetch 会带 SameSite=Strict Cookie）。上游 `state` 校验不变 |
+| 10 | 上传文件 24 小时清理会让写进集合配置的证书/OpenAPI 路径失效 | 属实 | 上传文件改为长期保存在 `$DATA/uploads`，不自动清理 |
+| 11 | 只读根文件系统下 `os.tmpdir()` 不可写 | 属实 | 启动时 `TMPDIR` 指向数据目录（已实现） |
+| 12 | 页面一接入就触发 `did-finish-load`，React 监听还没挂，`main:app-loaded` 会丢；每次重载都从磁盘重灌 Cookie | 属实 | 页面在 `load` 事件后才通知服务端触发 `did-finish-load`；bridge 对「到达时还没有监听者」的早期事件暂存，等首个监听者注册时补发（只在页面启动后 10 秒内）。Cookie 只在首次初始化，之后只推送列表 |
+| 13 | 每个上传文件一个目录，proto `import`、WSDL 相邻 XSD 找不到 | 属实 | 同一次选择的多个文件放进同一目录；需要互相引用的文件建议在文件对话框里「从本机上传」到集合目录。整目录上传不在一期 |
+| 14 | Postman 导出、环境导出走「选目录 + 另一个写文件 IPC」，不会触发下载 | 属实（`ExportToPostman/index.js:58`、`ipc/collection.js:1021/2640`） | 对 `renderer:export-collection-postman`、`renderer:export-environment` 加导出钩子：处理完成后把新写入的文件作为下载推给页面（服务器上的副本保留）；ZIP、工作区导出走保存对话框的「下载到本机」 |
+| 15 | Apps 放进不透明源 iframe 后失去 localStorage 等存储 | 属实 | 一期接受此差异并写入差异表；postMessage 校验 `event.source` 是本 iframe |
+| 16 | OAuth 弹窗无法注入自定义授权头、按偏好忽略证书错误、按 session 隔离登录 | 属实 | 写入差异表 |
+| 17 | 元数据地址屏蔽不覆盖代理等路径 | 属实 | 改称「尽力而为」：在 `dns.lookup` 与 `net.Socket.connect` 两处拦截（覆盖 axios、原生 fetch、gRPC 直连），经代理的请求无法拦截；真正的边界是网络策略 |
+| 18 | WS 同源校验依赖 Host，`none` 模式可能受 DNS 重绑定影响 | 部分属实 | 设置了 `BRUNO_WEB_PUBLIC_URL` 时 Origin 必须与之完全相等；`none` 模式额外要求 Host 是回环地址名 |
+| 19 | 推送应复用上游的 `safeStringifyJSON/safeParseJSON`（循环引用变 `"[Circular]"`）；invoke 中对象的 `undefined` 属性应保留 | 属实 | 已改 |
+| 20 | 通道统计漏了包装函数（`callIpc`），`on` 不应与 `ipcMain` 比对 | 属实 | 提取脚本加入 `callIpc`；自检只比对 invoke→handle、send→on |
+| 21 | 13 条验收不足以证明「完整可用」 | 属实 | 验收扩充为功能矩阵（见 §9 补充） |
+
+### 9 补充：验收矩阵
+
+端到端（Playwright + 真实服务进程 + 本地测试服务）新增：GraphQL、WebSocket、SSE 流式响应、请求取消、YAML 格式集合、全局环境、集合运行器、Cookie 写入与查看、Mock Server 启动并被请求、OpenAPI 文件导入、Postman 导出下载、ZIP 导出下载、断线期间发起的请求在恢复后完成且只执行一次、缓冲溢出后整页刷新、开发者模式下 `bru.getProcessEnv('BRUNO_WEB_PASSWORD')` 读不到。
+gRPC、Git 远程、AI 助手、客户端证书需要外部依赖，一期只做冒烟（通道可达、无未实现 API），不做完整流程。
