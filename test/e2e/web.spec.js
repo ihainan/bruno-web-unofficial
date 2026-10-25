@@ -215,3 +215,41 @@ test('the terminal and npm installs are refused by default', async ({ page, serv
   expect(results['terminal:create']).toMatch(/terminal is disabled/);
   expect(results['renderer:install-postman-packages']).toMatch(/runs code on the server/);
 });
+
+test.describe('on a phone', () => {
+  test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
+
+  test('the sidebar is a drawer, request and response stack, nothing scrolls sideways', async ({ page, server, echo }) => {
+    const srv = await server();
+    writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: `${echo.url}/phone` }]);
+    await openApp(page, srv);
+    const toggle = page.getByTestId('toggle-sidebar-button');
+    const collapsedLabel = await toggle.getAttribute('aria-label');
+
+    // Closed by default; Bruno's sidebar button opens the drawer.
+    await expect.poll(() => page.evaluate(() => document.documentElement.classList.contains('bw-drawer-open'))).toBe(false);
+    await toggle.tap();
+    await expect(page.locator('html')).toHaveClass(/bw-drawer-open/);
+
+    await page.getByTestId('collections-header-add-menu').tap();
+    await page.locator('.tippy-box .dropdown-item').filter({ hasText: /open collection/i }).first().tap();
+    // On a touch screen a tap opens the folder; the button picks the folder shown.
+    await webDialog(page).getByRole('option', { name: 'phone' }).tap();
+    await expect(webDialog(page).locator('.crumb.current')).toHaveText('phone');
+    await webDialog(page).getByRole('button', { name: /select this folder/i }).tap();
+    await collectionRow(page, 'phone').tap();
+    await sidebarItem(page, 'echo-get').tap();
+    // Picking a request closes the drawer.
+    await expect(page.locator('html')).not.toHaveClass(/bw-drawer-open/);
+
+    await page.getByTestId('send-arrow-icon').tap();
+    await expect(page.getByTestId('response-status-code')).toContainText('200');
+    const req = await page.getByTestId('request-pane').boundingBox();
+    const res = await page.getByTestId('response-pane').boundingBox();
+    expect(res.y).toBeGreaterThanOrEqual(req.y + req.height - 1);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+    // The drawer did not touch Bruno's own collapsed setting, which other devices share.
+    expect(await toggle.getAttribute('aria-label')).toBe(collapsedLabel);
+  });
+});

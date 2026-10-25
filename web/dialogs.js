@@ -17,6 +17,8 @@
     return body;
   };
 
+  const touch = window.matchMedia('(pointer: coarse)').matches;
+
   const listDir = (dir) => api(`/bruno-web/api/fs/list?path=${encodeURIComponent(dir || '')}`);
 
   const joinPath = (dir, name) => (dir.endsWith(sep) ? dir + name : dir + sep + name);
@@ -161,6 +163,9 @@
           }
         };
         row.addEventListener('click', (ev) => {
+          // Touch screens have no reliable double tap: a tap opens a folder, and
+          // the footer button picks the folder being shown.
+          if (touch && e.type === 'dir') return load(full);
           if (mode === 'save') {
             if (e.type === 'file') {
               nameInput.value = e.name;

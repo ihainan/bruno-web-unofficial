@@ -1,0 +1,119 @@
+/*
+ * Touch-screen layout for Bruno's desktop UI. Applies to touch screens only:
+ * a narrow desktop window keeps upstream's layout.
+ *
+ * - The sidebar becomes a drawer over the content, opened with Bruno's own
+ *   sidebar button (web/mobile.js keeps its state separate from Bruno's
+ *   collapsed setting, which is shared with other devices).
+ * - On phones, request and response stack vertically instead of side by side.
+ * - The page uses the dynamic viewport height so the status bar stays above
+ *   the mobile browser's toolbar.
+ */
+/* Phones and tablets: the sidebar becomes a drawer so content gets the full width. */
+@media (max-width: 1024px) and (pointer: coarse) {
+  #main-container {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+  }
+
+  /* Sidebar drawer. Its wrapper is the column holding aside[data-testid=sidebar]. */
+  #main-container > .flex-1 > div > div:has(> div > aside[data-testid="sidebar"]) {
+    position: fixed;
+    z-index: 9; /* below Bruno's modals (11 and up) */
+    top: 36px;
+    bottom: 0;
+    left: 0;
+    width: min(86vw, 340px) !important;
+    transform: translateX(-102%);
+    transition: transform 0.2s ease;
+    box-shadow: none;
+  }
+  html.bw-drawer-open #main-container > .flex-1 > div > div:has(> div > aside[data-testid="sidebar"]) {
+    transform: translateX(0);
+    box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.35), 0 2px 12px rgba(0, 0, 0, 0.25);
+  }
+  aside[data-testid="sidebar"],
+  aside[data-testid="sidebar"] > div > div {
+    width: 100% !important;
+  }
+  [data-testid="sidebar-drag-handle"] {
+    display: none !important;
+  }
+
+  /* Bigger touch targets in the tree. */
+  aside[data-testid="sidebar"] .collection-item-name,
+  aside[data-testid="sidebar"] #sidebar-collection-name {
+    min-height: 36px;
+  }
+
+
+  /* Response header: status, timing and format move to a second line so the
+     tabs keep their labels when the response pane is narrow. */
+  .response-pane .tabs.justify-between {
+    flex-wrap: wrap;
+    height: auto !important;
+    row-gap: 4px;
+  }
+  .response-pane .tabs.justify-between > :last-child,
+  .response-pane .tabs.justify-between > :last-child > .right-side-container {
+    width: 100%;
+    justify-content: flex-start;
+  }
+}
+
+/* Phones: one column. */
+@media (max-width: 760px) and (pointer: coarse) {
+  /* Title bar: keep the controls, drop the centred logo text. */
+  .app-titlebar .titlebar-center {
+    display: none !important;
+  }
+  .app-titlebar .titlebar-left {
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  /* Request above response. */
+  section.main {
+    flex-direction: column !important;
+    overflow-y: auto !important;
+  }
+  section.main > section.request-pane {
+    width: 100% !important;
+    height: 46dvh !important;
+    min-height: 220px;
+    flex-shrink: 0;
+  }
+  section.main > .dragbar-wrapper {
+    display: none !important;
+  }
+  section.main > section.response-pane {
+    width: 100%;
+    min-height: 46dvh;
+    flex: 1 0 auto;
+    padding-top: 0.5rem;
+    border-top: 1px solid rgba(127, 127, 127, 0.25);
+  }
+  .query-url-wrapper {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+  section.request-pane > .px-4 {
+    padding-left: 0.5rem !important;
+    padding-right: 0.5rem !important;
+  }
+
+  /* Workspace home: one column. */
+  .overview-layout {
+    flex-direction: column !important;
+    overflow-y: auto;
+  }
+  .overview-layout > .overview-main,
+  .overview-layout > .overview-docs {
+    width: 100% !important;
+    max-width: none !important;
+    flex: none !important;
+  }
+  .overview-layout > .overview-docs {
+    min-height: 320px;
+  }
+}

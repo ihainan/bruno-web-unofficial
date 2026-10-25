@@ -40,16 +40,23 @@ const escapeHtml = (s) => String(s)
 const buildIndexHtml = (upstreamHtml) => {
   const inject = [
     '<link rel="stylesheet" href="/bruno-web/static/bridge.css">',
+    '<link rel="stylesheet" href="/bruno-web/static/mobile.css">',
     '<script src="/bruno-web/config.js"></script>',
     '<script src="/bruno-web/static/codec.js"></script>',
     '<script src="/bruno-web/static/i18n.js"></script>',
     '<script src="/bruno-web/static/ui.js"></script>',
     '<script src="/bruno-web/static/dialogs.js"></script>',
     '<script src="/bruno-web/static/webview.js"></script>',
-    '<script src="/bruno-web/static/bridge.js"></script>'
+    '<script src="/bruno-web/static/bridge.js"></script>',
+    '<script src="/bruno-web/static/mobile.js" defer></script>'
   ].join('');
   if (!/<head>/i.test(upstreamHtml)) throw new Error('Unexpected renderer index.html: no <head>');
-  return upstreamHtml.replace(/<head>/i, (m) => `${m}${inject}`);
+  // maximum-scale=1 stops iOS from zooming the page whenever an editor with a
+  // small font gets focus; pinch zoom still works.
+  const viewport = '<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">';
+  return upstreamHtml
+    .replace(/<meta name="viewport"[^>]*>/i, viewport)
+    .replace(/<head>/i, (m) => `${m}${inject}`);
 };
 
 /**
