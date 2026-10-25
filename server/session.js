@@ -119,7 +119,7 @@ class Hub {
   deliver(msg) {
     msg.seq = ++this.seq;
     let text = encode(msg);
-    if (text.length > config.maxMessageBytes) {
+    if (text.length > config.maxResultBytes) {
       console.error(`[bruno-web] ${msg.t} ${msg.ch || msg.method || ''} is ${text.length} bytes, over the limit`);
       if (msg.t !== 'result') return;
       text = encode({

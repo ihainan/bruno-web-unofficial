@@ -119,6 +119,9 @@
   let sawUndefinedMarker = false;
   const encode = (msg) => JSON.stringify(msg, replacer);
   const decode = (text) => {
+    // Most messages carry no tagged values; parsing without a reviver is
+    // several times faster, which matters for large responses.
+    if (text.indexOf('"' + TAG + '"') === -1) return JSON.parse(text);
     sawUndefinedMarker = false;
     const out = JSON.parse(text, function (key, value) {
       const revived = reviver.call(this, key, value);

@@ -90,6 +90,18 @@ test('a dropped connection resumes without a reload and loses nothing', async ({
   expect(await page.evaluate(() => window.__sameDocument)).toBe(true);
 });
 
+test('a 50 MB response reaches the page and gets the large-response warning', async ({ page, server, echo }) => {
+  test.setTimeout(120000);
+  const srv = await server();
+  writeCollection(path.join(srv.workspace, 'large'), 'large', [{ name: 'large', url: `${echo.url}/large` }]);
+  await openApp(page, srv);
+  await openCollectionViaDialog(page, 'large');
+  await openRequest(page, 'large', 'large');
+  await send(page);
+  await expect(page.getByText('Large Response Warning')).toBeVisible({ timeout: 60000 });
+  expect(srv.log()).not.toMatch(/over the limit/);
+});
+
 test('a second tab takes over and the first one says so', async ({ page, context, server }) => {
   const srv = await server();
   await openApp(page, srv);

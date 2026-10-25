@@ -114,6 +114,14 @@ const startEcho = async () => {
         res.setHeader('Content-Type', 'application/json');
         return res.end(JSON.stringify({ access_token: body.includes('the-code') ? 'code-token' : 'unexpected', token_type: 'Bearer', expires_in: 3600 }));
       }
+      if (req.url.startsWith('/large')) {
+        // ~50 MB of JSON, generated rather than buffered in memory twice.
+        res.setHeader('Content-Type', 'application/json');
+        const row = JSON.stringify({ id: 0, name: 'employee', email: 'someone@example.com', department: 'engineering', notes: 'x'.repeat(200) });
+        res.write('[');
+        for (let i = 0; i < 180000; i++) res.write((i ? ',' : '') + row);
+        return res.end(']');
+      }
       if (req.url.startsWith('/slow')) {
         return setTimeout(() => res.end(JSON.stringify({ slow: true })), 3000);
       }

@@ -59,7 +59,12 @@ const config = {
   enableTerminal: bool(process.env.BRUNO_WEB_ENABLE_TERMINAL, false),
   blockMetadataHosts: bool(process.env.BRUNO_WEB_BLOCK_METADATA, true),
 
+  // Page -> server messages (request bodies typed into the page, etc.).
   maxMessageBytes: Number(process.env.BRUNO_WEB_MAX_MESSAGE_MB || 64) * 1024 * 1024,
+  // Server -> page messages. A response result carries the body twice (parsed
+  // and base64), so a 50 MB response is ~90 MB on the wire; the desktop app
+  // holds it in memory all the same.
+  maxResultBytes: Number(process.env.BRUNO_WEB_MAX_RESULT_MB || 512) * 1024 * 1024,
   maxUploadBytes: Number(process.env.BRUNO_WEB_MAX_UPLOAD_MB || 200) * 1024 * 1024,
   resumeWindowMs: Number(process.env.BRUNO_WEB_RESUME_SECONDS || 60) * 1000,
   replayMaxEvents: Number(process.env.BRUNO_WEB_REPLAY_MAX_EVENTS || 10000),
