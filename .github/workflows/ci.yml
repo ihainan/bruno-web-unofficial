@@ -1,0 +1,119 @@
+name: CI
+
+# test:  unit tests, upstream selector check, selfcheck and Bruno Web's own e2e
+#        suite against the pinned upstream. (Upstream's whole e2e suite needs
+#        more memory than a hosted runner has; scripts/upstream-gate.sh runs it.)
+# image: build the container, smoke-test it, and publish it to GHCR from main
+#        and version tags (only while the repository is public: private GHCR
+#        storage is not free).
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.1
+      - name: Cache the upstream build
+        uses: actions/cache@v4
+        with:
+          path: upstream
+          key: upstream-${{ hashFiles('UPSTREAM_COMMIT', 'patches/**') }}
+      - name: Install Playwright's Chromium
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+      - name: Upgrade gate (without upstream's own e2e suite)
+        env:
+          GATE_SKIP_UPSTREAM_E2E: '1'
+          E2E_WORKERS: '2'
+        run: scripts/upstream-gate.sh gate-results
+      - name: Gate summary
+        if: always()
+        run: cat gate-results/summary.md >> "$GITHUB_STEP_SUMMARY" || true
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: gate-results
+          path: |
+            gate-results
+            test-results
+          retention-days: 14
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Work out tags
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          commit=$(tr -d '[:space:]' < UPSTREAM_COMMIT)
+          # Name the Bruno release inside when the pin is a release tag.
+          bruno=$(gh api 'repos/usebruno/bruno/tags?per_page=100' --jq ".[] | select(.commit.sha == \"$commit\") | .name" | head -1)
+          image=ghcr.io/${GITHUB_REPOSITORY,,}
+          tags="$image:sha-${GITHUB_SHA::7},$image:bruno-${bruno:-${commit::10}}"
+          if [ "$GITHUB_REF" = refs/heads/main ]; then tags="$tags,$image:latest"; fi
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then tags="$tags,$image:${GITHUB_REF#refs/tags/v}"; fi
+          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "upstream=$commit" >> "$GITHUB_OUTPUT"
+          echo "bruno=${bruno:-main@${commit::10}}" >> "$GITHUB_OUTPUT"
+      - name: Build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: bruno-web:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.description=Unofficial: the Bruno API client in a browser (Bruno ${{ steps.meta.outputs.bruno }})
+            io.github.bruno-web.upstream-commit=${{ steps.meta.outputs.upstream }}
+      - name: Smoke test
+        run: scripts/smoke-container.sh bruno-web:ci
+      - name: Log in to GHCR
+        if: github.event_name == 'push' && !github.event.repository.private
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Publish
+        if: github.event_name == 'push' && !github.event.repository.private
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          cache-from: type=gha
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.licenses=MIT
+            org.opencontainers.image.description=Unofficial: the Bruno API client in a browser (Bruno ${{ steps.meta.outputs.bruno }})
+            io.github.bruno-web.upstream-commit=${{ steps.meta.outputs.upstream }}
