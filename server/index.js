@@ -306,6 +306,8 @@ const main = async () => {
     server.close();
     for (const client of wss.clients) client.close(1001, 'server shutting down');
     await Promise.race([upstream.shutdown(), new Promise((r) => setTimeout(r, 8000))]);
+    // Again: requests still in flight may have extended a session meanwhile.
+    if (auth.mode === 'password') auth.saveSessions();
     process.exit(0);
   };
   process.on('SIGTERM', () => stop('SIGTERM'));

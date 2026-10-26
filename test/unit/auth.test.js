@@ -86,8 +86,39 @@ test('a login survives a restart, but not a password change or a logout', () => 
 
 test('an unreadable sessions file starts with no sessions instead of failing', () => {
   const sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-')), 'sessions.json');
-  fs.writeFileSync(sessionsFile, '{not json');
+  for (const bad of ['{not json', '{"salt":"00112233445566778899aabbccddeeff","mac":{"toString":null},"data":"{}"}', 'null']) {
+    fs.writeFileSync(sessionsFile, bad);
+    const auth = new Auth({ sessionsFile });
+    assert.equal(auth.sessions.size, 0);
+    assert.ok(auth.login(req(), 'correct horse').ok);
+  }
+});
+
+test('a session added to the file by hand is rejected', () => {
+  const sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-')), 'sessions.json');
+  new Auth({ sessionsFile }).login(req(), 'correct horse');
+  const saved = JSON.parse(fs.readFileSync(sessionsFile, 'utf8'));
+  const data = JSON.parse(saved.data);
+  const forgedId = require('node:crypto').createHash('sha256').update('chosen').digest('base64url');
+  data[forgedId] = { user: 'admin', expiresAt: Date.now() + 3600e3, cookieIssuedAt: 0 };
+  fs.writeFileSync(sessionsFile, JSON.stringify({ ...saved, data: JSON.stringify(data) }));
+  assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie: 'bruno_web_session=chosen' })), null);
+});
+
+test('a logout that cannot be written removes the saved sessions instead', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-'));
+  const sessionsFile = path.join(dir, 'sessions.json');
   const auth = new Auth({ sessionsFile });
-  assert.equal(auth.sessions.size, 0);
-  assert.ok(auth.login(req(), 'correct horse').ok);
+  const token = /bruno_web_session=([^;]+)/.exec(auth.login(req(), 'correct horse').cookie)[1];
+  const realWrite = fs.writeFileSync;
+  fs.writeFileSync = () => {
+    throw Object.assign(new Error('disk full'), { code: 'ENOSPC' });
+  };
+  try {
+    auth.logout(req({ cookie: `bruno_web_session=${token}` }));
+  } finally {
+    fs.writeFileSync = realWrite;
+  }
+  assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie: `bruno_web_session=${token}` })), null);
+  assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), []);
 });

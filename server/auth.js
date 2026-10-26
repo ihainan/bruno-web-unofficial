@@ -144,35 +144,39 @@ class Auth {
   }
 
   /*
-   * Sessions survive restarts through a small JSON file. It is bound to the
-   * configured password: changing the password drops every saved session.
-   * With a plain BRUNO_WEB_PASSWORD the binding is an scrypt hash under the
-   * file's own salt, so the file does not give the password away cheaply.
+   * Sessions survive restarts through a small JSON file:
+   *   { salt, mac, data }   data = JSON of { <sha256(token)>: session }
+   * mac is an HMAC of data keyed by scrypt(password, salt). The key is never
+   * written, so the file can neither be edited to add a session nor used to
+   * guess the password cheaply, and changing the password drops every saved
+   * session.
    */
-  passwordBinding(salt) {
+  fileKey(salt) {
     const secret = config.passwordHash ? `hash:${config.passwordHash}` : `plain:${config.password}`;
-    return crypto.scryptSync(secret, Buffer.from(salt, 'hex'), 32).toString('hex');
+    return crypto.scryptSync(secret, Buffer.from(salt, 'hex'), 32);
   }
 
   loadSessions() {
     this.fileSalt = crypto.randomBytes(16).toString('hex');
     if (!this.sessionsFile) return;
-    let saved;
     try {
-      saved = JSON.parse(fs.readFileSync(this.sessionsFile, 'utf8'));
+      const saved = JSON.parse(fs.readFileSync(this.sessionsFile, 'utf8'));
+      if (!saved || typeof saved.salt !== 'string' || !/^[0-9a-f]{32}$/.test(saved.salt)) throw new Error('bad salt');
+      if (typeof saved.mac !== 'string' || typeof saved.data !== 'string') throw new Error('bad format');
+      const key = this.fileKey(saved.salt);
+      const mac = crypto.createHmac('sha256', key).update(saved.data).digest('base64url');
+      if (!safeEqual(saved.mac, mac)) return; // password changed (or the file was edited)
+      this.fileSalt = saved.salt;
+      this.fileKeyCache = key;
+      const now = Date.now();
+      for (const [id, s] of Object.entries(JSON.parse(saved.data))) {
+        if (s && typeof s.user === 'string' && Number.isFinite(s.expiresAt) && s.expiresAt > now) {
+          this.sessions.set(id, { user: s.user, expiresAt: s.expiresAt, cookieIssuedAt: Number.isFinite(s.cookieIssuedAt) ? s.cookieIssuedAt : 0 });
+        }
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') console.warn(`[bruno-web] ignoring unreadable ${this.sessionsFile}: ${e.message}`);
-      return;
-    }
-    if (!saved || typeof saved.salt !== 'string' || !/^[0-9a-f]{32}$/.test(saved.salt)) return;
-    if (!safeEqual(saved.binding, this.passwordBinding(saved.salt))) return; // password changed
-    this.fileSalt = saved.salt;
-    this.binding = saved.binding;
-    const now = Date.now();
-    for (const [id, s] of Object.entries(saved.sessions || {})) {
-      if (s && typeof s.user === 'string' && Number(s.expiresAt) > now) {
-        this.sessions.set(id, { user: s.user, expiresAt: Number(s.expiresAt), cookieIssuedAt: Number(s.cookieIssuedAt) || 0 });
-      }
+      this.sessions.clear();
     }
   }
 
@@ -184,24 +188,32 @@ class Auth {
     this.saveTimer.unref();
   }
 
+  // Returns false when the file could not be written.
   saveSessions() {
     clearTimeout(this.saveTimer);
     this.saveTimer = null;
-    if (!this.sessionsFile || this.mode !== 'password') return;
-    if (!this.binding) this.binding = this.passwordBinding(this.fileSalt);
+    if (!this.sessionsFile || this.mode !== 'password') return true;
+    if (!this.fileKeyCache) this.fileKeyCache = this.fileKey(this.fileSalt);
     const now = Date.now();
     const sessions = {};
     for (const [id, s] of this.sessions) {
       if (s.expiresAt > now) sessions[id] = s;
       else this.sessions.delete(id);
     }
-    const tmp = `${this.sessionsFile}.${process.pid}.tmp`;
+    const data = JSON.stringify(sessions);
+    const mac = crypto.createHmac('sha256', this.fileKeyCache).update(data).digest('base64url');
+    // Unpredictable name, created exclusively: never write through a file or
+    // link someone else put there.
+    const tmp = `${this.sessionsFile}.${crypto.randomBytes(8).toString('hex')}.tmp`;
     try {
       fs.mkdirSync(path.dirname(this.sessionsFile), { recursive: true });
-      fs.writeFileSync(tmp, JSON.stringify({ salt: this.fileSalt, binding: this.binding, sessions }), { mode: 0o600 });
+      fs.writeFileSync(tmp, JSON.stringify({ salt: this.fileSalt, mac, data }), { mode: 0o600, flag: 'wx' });
       fs.renameSync(tmp, this.sessionsFile);
+      return true;
     } catch (e) {
       console.warn(`[bruno-web] could not save sessions: ${e.message}`);
+      fs.rmSync(tmp, { force: true });
+      return false;
     }
   }
 
@@ -246,7 +258,15 @@ class Auth {
 
   logout(req) {
     const token = parseCookies(req.headers.cookie)[COOKIE];
-    if (token && this.sessions.delete(tokenId(token))) this.saveSessions();
+    // If the file cannot be rewritten, remove it rather than let the
+    // revoked session come back on the next start.
+    if (token && this.sessions.delete(tokenId(token)) && !this.saveSessions()) {
+      try {
+        fs.rmSync(this.sessionsFile, { force: true });
+      } catch (e) {
+        console.error(`[bruno-web] could not revoke the saved session in ${this.sessionsFile}: ${e.message}`);
+      }
+    }
     return this.cookieHeader(req, '', 0);
   }
 
