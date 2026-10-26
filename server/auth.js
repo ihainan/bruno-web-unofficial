@@ -212,7 +212,11 @@ class Auth {
       return true;
     } catch (e) {
       console.warn(`[bruno-web] could not save sessions: ${e.message}`);
-      fs.rmSync(tmp, { force: true });
+      try {
+        fs.rmSync(tmp, { force: true });
+      } catch (e2) {
+        // Nothing more to do; the next save uses a new name.
+      }
       return false;
     }
   }
@@ -258,13 +262,18 @@ class Auth {
 
   logout(req) {
     const token = parseCookies(req.headers.cookie)[COOKIE];
-    // If the file cannot be rewritten, remove it rather than let the
-    // revoked session come back on the next start.
+    // If the file cannot be rewritten, remove it (or, in a read-only
+    // directory, empty it) rather than let the revoked session come back on
+    // the next start.
     if (token && this.sessions.delete(tokenId(token)) && !this.saveSessions()) {
       try {
         fs.rmSync(this.sessionsFile, { force: true });
       } catch (e) {
-        console.error(`[bruno-web] could not revoke the saved session in ${this.sessionsFile}: ${e.message}`);
+        try {
+          fs.truncateSync(this.sessionsFile, 0);
+        } catch (e2) {
+          console.error(`[bruno-web] could not revoke the saved session in ${this.sessionsFile}: ${e2.message}`);
+        }
       }
     }
     return this.cookieHeader(req, '', 0);

@@ -122,3 +122,21 @@ test('a logout that cannot be written removes the saved sessions instead', () =>
   assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie: `bruno_web_session=${token}` })), null);
   assert.deepEqual(fs.readdirSync(dir).filter((f) => f.endsWith('.tmp')), []);
 });
+
+test('in a read-only directory a logout empties the saved file instead', () => {
+  const sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-')), 'sessions.json');
+  const auth = new Auth({ sessionsFile });
+  const token = /bruno_web_session=([^;]+)/.exec(auth.login(req(), 'correct horse').cookie)[1];
+  const real = { writeFileSync: fs.writeFileSync, rmSync: fs.rmSync };
+  const readOnly = () => {
+    throw Object.assign(new Error('read-only'), { code: 'EACCES' });
+  };
+  fs.writeFileSync = readOnly;
+  fs.rmSync = readOnly;
+  try {
+    auth.logout(req({ cookie: `bruno_web_session=${token}` }));
+  } finally {
+    Object.assign(fs, real);
+  }
+  assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie: `bruno_web_session=${token}` })), null);
+});

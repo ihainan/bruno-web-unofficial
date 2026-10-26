@@ -305,10 +305,17 @@ const main = async () => {
     if (auth.mode === 'password') auth.saveSessions();
     server.close();
     for (const client of wss.clients) client.close(1001, 'server shutting down');
-    await Promise.race([upstream.shutdown(), new Promise((r) => setTimeout(r, 8000))]);
-    // Again: requests still in flight may have extended a session meanwhile.
-    if (auth.mode === 'password') auth.saveSessions();
-    process.exit(0);
+    let code = 0;
+    try {
+      await Promise.race([upstream.shutdown(), new Promise((r) => setTimeout(r, 8000))]);
+    } catch (err) {
+      console.error('[bruno-web] shutdown failed:', err);
+      code = 1;
+    } finally {
+      // Again: requests still in flight may have extended a session meanwhile.
+      if (auth.mode === 'password') auth.saveSessions();
+      process.exit(code);
+    }
   };
   process.on('SIGTERM', () => stop('SIGTERM'));
   process.on('SIGINT', () => stop('SIGINT'));
