@@ -151,7 +151,7 @@ push_branch() {
 }
 
 open_pr() { # title body-file [--draft]
-  [ "$NO_PUSH" = 1 ] && { log "NO_PUSH: would open PR \"$1\""; echo "(dry run)"; return 0; }
+  [ "$NO_PUSH" = 1 ] && { log "NO_PUSH: would open PR \"$1\"" >&2; echo "(dry run, no PR)"; return 0; }
   gh pr create --base main --head "$BRANCH" --title "$1" --body-file "$2" ${3:-}
 }
 
@@ -191,6 +191,7 @@ brief=${brief//\{\{GATE_DIR\}\}/$RUN/gate1}
 brief=${brief//\{\{RUN\}\}/$RUN}
 brief=${brief//\{\{SUMMARY\}\}/$summary}
 printf '%s\n' "$brief" > "$RUN/agent-brief.md"
+before_agent=$(git rev-parse HEAD)
 
 timeout "$AGENT_TIMEOUT" "$AGENT" -p "$brief" \
   --permission-mode auto \
@@ -211,7 +212,7 @@ outside=$(printf '%s\n' "$changed" | grep -v -E '^(server/|web/|test/|scripts/|d
 if [ -n "$outside" ]; then
   log "agent changed files outside Bruno Web's own: $outside"
 fi
-if [ "$(git rev-parse HEAD)" != "$(git rev-parse "origin/main")" ]; then
+if [ "$(git rev-parse HEAD)" != "$before_agent" ]; then
   log "note: the agent created commits despite the brief; they are kept for review"
 fi
 
