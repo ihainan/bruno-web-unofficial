@@ -167,7 +167,20 @@ $(upstream_line "$RUN/gate1")" || fail "commit" "提交失败"
     log "NO_PUSH: would push $BRANCH and fast-forward main"
   elif git push -q origin "HEAD:main"; then
     git push -q origin --delete "$BRANCH" 2>/dev/null || true
-    notify "bruno-web-weekly-done" "Bruno 已升级到 $target_ref" "测试全部通过，已合并到 main，镜像会自动构建。$(counts "$RUN/gate1")。"
+    # CI builds and smoke-tests the image from main; wait for it so a broken
+    # image build is reported here too, not only by GitHub's e-mail.
+    ci="CI 结果未知"
+    sha=$(git rev-parse HEAD)
+    for _ in $(seq 1 30); do
+      run_id=$(gh run list --commit "$sha" --workflow ci.yml --limit 1 --json databaseId --jq '.[0].databaseId' 2>/dev/null)
+      [ -n "$run_id" ] && break
+      sleep 20
+    done
+    if [ -n "${run_id:-}" ]; then
+      if timeout 90m gh run watch "$run_id" --exit-status --interval 60 > "$RUN/ci-watch.log" 2>&1; then ci="CI（测试 + 镜像构建与冒烟）通过"
+      else ci="但 GitHub CI 失败了，请看 https://github.com/$(gh repo view --json nameWithOwner --jq .nameWithOwner)/actions/runs/$run_id"; fi
+    fi
+    notify "bruno-web-weekly-done" "Bruno 已升级到 $target_ref" "测试全部通过并已合并到 main，$ci。$(counts "$RUN/gate1")。"
   else
     push_branch || fail "push" "推送分支失败"
     cp "$RUN/gate1/summary.md" "$RUN/pr-body.md"
