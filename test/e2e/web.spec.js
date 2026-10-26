@@ -65,6 +65,32 @@ test('a request file changed on disk shows up in the page, also after a reload',
   await expect(sidebarItem(page, 'after-reload')).toBeVisible();
 });
 
+test('leaving the page asks first only when a tab has unsaved changes', async ({ page, server, echo }) => {
+  const srv = await server();
+  writeCollection(path.join(srv.workspace, 'drafts'), 'drafts', [{ name: 'draft-me', url: `${echo.url}/a` }]);
+  await openApp(page, srv);
+  await openCollectionViaDialog(page, 'drafts');
+  await openRequest(page, 'drafts', 'draft-me');
+  await expect(page.locator('.request-tab').filter({ hasText: 'draft-me' })).toBeVisible();
+
+  const asked = [];
+  page.on('dialog', (d) => {
+    asked.push(d.type());
+    d.dismiss();
+  });
+  await page.reload();
+  await page.locator('[data-app-state="loaded"]').waitFor();
+  expect(asked).toEqual([]);
+
+  await openRequest(page, 'drafts', 'draft-me');
+  await page.locator('#request-url .CodeMirror').click();
+  await page.keyboard.press('End');
+  await page.keyboard.type('/changed');
+  await expect(page.locator('.close-gradient.has-changes')).toHaveCount(1);
+  await page.close({ runBeforeUnload: true });
+  await expect.poll(() => asked).toEqual(['beforeunload']);
+});
+
 test('a dropped connection resumes without a reload and loses nothing', async ({ page, server, echo }) => {
   const srv = await server();
   const dir = path.join(srv.workspace, 'net');

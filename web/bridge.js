@@ -506,11 +506,12 @@
   };
 
   // The desktop app asks before quitting with unsaved changes; a closing or
-  // reloading tab gets the browser's own confirmation instead. Unsaved request
-  // tabs carry Bruno's draft marker.
+  // reloading tab gets the browser's own confirmation instead. A tab with
+  // unsaved changes has `has-changes` on its close button (the draft dot
+  // itself, .has-changes-icon, is rendered on every tab and only shown by CSS).
   window.addEventListener('beforeunload', (event) => {
     if (stopped) return;
-    if (!document.querySelector('.has-changes-icon')) return;
+    if (!document.querySelector('.close-gradient.has-changes')) return;
     event.preventDefault();
     event.returnValue = '';
   });
