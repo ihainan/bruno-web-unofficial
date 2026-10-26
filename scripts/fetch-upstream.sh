@@ -11,7 +11,8 @@ COMMIT=$(tr -d '[:space:]' < "$REPO/UPSTREAM_COMMIT")
 # Already fetched and built at this commit (and patches): nothing to do.
 # Delete $DEST/.bruno-web-built to force a rebuild.
 STAMP="$DEST/.bruno-web-built"
-WANT="$COMMIT $(cat "$REPO"/patches/*.patch 2>/dev/null | sha256sum | cut -c1-16)"
+PATCHES=$({ compgen -G "$REPO/patches/*.patch" || true; } | sort | xargs -r cat | sha256sum | cut -c1-16)
+WANT="$COMMIT $PATCHES"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$WANT" ] && [ -z "$(git -C "$DEST" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
   BRUNO_WEB_UPSTREAM="$DEST" node "$REPO/scripts/extract-channels.js"
   echo "upstream $COMMIT already built in $DEST"
