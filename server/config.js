@@ -32,6 +32,8 @@ const config = {
   uploadsDir: path.join(dataDir, 'uploads'),
   tmpDir: path.join(dataDir, 'tmp', 'os'),
   trashDir: path.join(dataDir, 'trash'),
+  // Login sessions, so a restart does not log everyone out.
+  sessionsFile: path.join(dataDir, 'sessions.json'),
   roots,
 
   // password | proxy | none

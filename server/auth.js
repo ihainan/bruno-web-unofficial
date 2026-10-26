@@ -9,6 +9,8 @@
  *   none      no login; only allowed when listening on loopback.
  */
 const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 const config = require('./config');
 
 const COOKIE = 'bruno_web_session';
@@ -52,12 +54,17 @@ const parseCookies = (header) => {
   return out;
 };
 
+const tokenId = (token) => crypto.createHash('sha256').update(String(token)).digest('base64url');
+
 const isLoopback = (host) => ['127.0.0.1', '::1', 'localhost'].includes(host);
 
 class Auth {
-  constructor() {
+  constructor({ sessionsFile = config.sessionsFile } = {}) {
     this.mode = config.auth;
-    this.sessions = new Map(); // token -> { user, expiresAt }
+    // sha256(token) -> { user, expiresAt, cookieIssuedAt }. Keyed by a hash so
+    // the sessions file on disk holds nothing a browser could present.
+    this.sessions = new Map();
+    this.sessionsFile = sessionsFile;
     this.failures = new Map(); // ip -> { count, resetAt }
 
     if (!['password', 'proxy', 'none'].includes(this.mode)) {
@@ -74,6 +81,7 @@ class Auth {
       } else {
         throw new Error('BRUNO_WEB_AUTH=password needs BRUNO_WEB_PASSWORD or BRUNO_WEB_PASSWORD_HASH');
       }
+      this.loadSessions();
     }
     if (this.mode === 'proxy' && !config.proxySecret) {
       throw new Error('BRUNO_WEB_AUTH=proxy needs BRUNO_WEB_PROXY_SECRET so other clients cannot forge the user header');
@@ -98,31 +106,103 @@ class Auth {
     }
     const token = parseCookies(req.headers.cookie)[COOKIE];
     if (!token) return null;
-    const session = this.sessions.get(token);
+    const session = this.sessions.get(tokenId(token));
     if (!session) return null;
     if (session.expiresAt < Date.now()) {
-      this.sessions.delete(token);
+      this.sessions.delete(tokenId(token));
+      this.saveSoon();
       return null;
     }
     // Sliding expiry.
     session.expiresAt = Date.now() + config.sessionTtlMs;
+    this.saveSoon();
     return session.user;
   }
 
   // Like userFor() but without extending the session (used by periodic checks).
   isValid(req) {
     if (this.mode !== 'password') return !!this.userFor(req);
-    const session = this.sessions.get(parseCookies(req.headers.cookie)[COOKIE]);
+    const session = this.sessionFor(req.headers);
     return !!session && session.expiresAt >= Date.now();
   }
 
   // Activity on an open socket keeps the login alive (throttled to once a minute).
   touch(headers) {
     if (this.mode !== 'password') return;
-    const session = this.sessions.get(parseCookies(headers.cookie)[COOKIE]);
+    const session = this.sessionFor(headers);
     if (!session || session.expiresAt < Date.now()) return;
     const next = Date.now() + config.sessionTtlMs;
-    if (next - session.expiresAt > 60000) session.expiresAt = next;
+    if (next - session.expiresAt > 60000) {
+      session.expiresAt = next;
+      this.saveSoon();
+    }
+  }
+
+  sessionFor(headers) {
+    const token = parseCookies(headers.cookie)[COOKIE];
+    return token ? this.sessions.get(tokenId(token)) : undefined;
+  }
+
+  /*
+   * Sessions survive restarts through a small JSON file. It is bound to the
+   * configured password: changing the password drops every saved session.
+   * With a plain BRUNO_WEB_PASSWORD the binding is an scrypt hash under the
+   * file's own salt, so the file does not give the password away cheaply.
+   */
+  passwordBinding(salt) {
+    const secret = config.passwordHash ? `hash:${config.passwordHash}` : `plain:${config.password}`;
+    return crypto.scryptSync(secret, Buffer.from(salt, 'hex'), 32).toString('hex');
+  }
+
+  loadSessions() {
+    this.fileSalt = crypto.randomBytes(16).toString('hex');
+    if (!this.sessionsFile) return;
+    let saved;
+    try {
+      saved = JSON.parse(fs.readFileSync(this.sessionsFile, 'utf8'));
+    } catch (e) {
+      if (e.code !== 'ENOENT') console.warn(`[bruno-web] ignoring unreadable ${this.sessionsFile}: ${e.message}`);
+      return;
+    }
+    if (!saved || typeof saved.salt !== 'string' || !/^[0-9a-f]{32}$/.test(saved.salt)) return;
+    if (!safeEqual(saved.binding, this.passwordBinding(saved.salt))) return; // password changed
+    this.fileSalt = saved.salt;
+    this.binding = saved.binding;
+    const now = Date.now();
+    for (const [id, s] of Object.entries(saved.sessions || {})) {
+      if (s && typeof s.user === 'string' && Number(s.expiresAt) > now) {
+        this.sessions.set(id, { user: s.user, expiresAt: Number(s.expiresAt), cookieIssuedAt: Number(s.cookieIssuedAt) || 0 });
+      }
+    }
+  }
+
+  // Sliding expiry changes on every request; write those at most every 30 s.
+  // Logins and logouts are written at once.
+  saveSoon() {
+    if (!this.sessionsFile || this.saveTimer) return;
+    this.saveTimer = setTimeout(() => this.saveSessions(), 30 * 1000);
+    this.saveTimer.unref();
+  }
+
+  saveSessions() {
+    clearTimeout(this.saveTimer);
+    this.saveTimer = null;
+    if (!this.sessionsFile || this.mode !== 'password') return;
+    if (!this.binding) this.binding = this.passwordBinding(this.fileSalt);
+    const now = Date.now();
+    const sessions = {};
+    for (const [id, s] of this.sessions) {
+      if (s.expiresAt > now) sessions[id] = s;
+      else this.sessions.delete(id);
+    }
+    const tmp = `${this.sessionsFile}.${process.pid}.tmp`;
+    try {
+      fs.mkdirSync(path.dirname(this.sessionsFile), { recursive: true });
+      fs.writeFileSync(tmp, JSON.stringify({ salt: this.fileSalt, binding: this.binding, sessions }), { mode: 0o600 });
+      fs.renameSync(tmp, this.sessionsFile);
+    } catch (e) {
+      console.warn(`[bruno-web] could not save sessions: ${e.message}`);
+    }
   }
 
   tooManyFailures(ip) {
@@ -146,7 +226,8 @@ class Auth {
     }
     this.failures.delete(ip);
     const token = crypto.randomBytes(32).toString('base64url');
-    this.sessions.set(token, { user: 'admin', expiresAt: Date.now() + config.sessionTtlMs, cookieIssuedAt: Date.now() });
+    this.sessions.set(tokenId(token), { user: 'admin', expiresAt: Date.now() + config.sessionTtlMs, cookieIssuedAt: Date.now() });
+    this.saveSessions();
     return { ok: true, cookie: this.cookieHeader(req, token, Math.floor(config.sessionTtlMs / 1000)) };
   }
 
@@ -155,16 +236,17 @@ class Auth {
   refreshCookie(req) {
     if (this.mode !== 'password') return null;
     const token = parseCookies(req.headers.cookie)[COOKIE];
-    const session = token && this.sessions.get(token);
+    const session = token && this.sessions.get(tokenId(token));
     if (!session || session.expiresAt < Date.now()) return null;
     if (session.cookieIssuedAt && Date.now() - session.cookieIssuedAt < 10 * 60 * 1000) return null;
     session.cookieIssuedAt = Date.now();
+    this.saveSoon();
     return this.cookieHeader(req, token, Math.floor(config.sessionTtlMs / 1000));
   }
 
   logout(req) {
     const token = parseCookies(req.headers.cookie)[COOKIE];
-    if (token) this.sessions.delete(token);
+    if (token && this.sessions.delete(tokenId(token))) this.saveSessions();
     return this.cookieHeader(req, '', 0);
   }
 

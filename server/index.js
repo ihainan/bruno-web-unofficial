@@ -302,6 +302,7 @@ const main = async () => {
     if (stopping) return;
     stopping = true;
     console.log(`[bruno-web] ${signal}: shutting down`);
+    if (auth.mode === 'password') auth.saveSessions();
     server.close();
     for (const client of wss.clients) client.close(1001, 'server shutting down');
     await Promise.race([upstream.shutdown(), new Promise((r) => setTimeout(r, 8000))]);

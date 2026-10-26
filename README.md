@@ -48,7 +48,7 @@ docker run -d -p 8484:8484 -v bruno-data:/data \
 | `BRUNO_WEB_ENABLE_TERMINAL` | `false` | 内置终端——等于给浏览器一个服务器 shell |
 | `BRUNO_WEB_BLOCK_METADATA` | `true` | 拒绝连接 169.254.0.0/16 等云元数据地址（尽力而为，见下） |
 | `BRUNO_WEB_SAMPLE_COLLECTION` | `true` | 首次启动导入示例集合 |
-| `BRUNO_WEB_SESSION_TTL_HOURS` | `12` | 登录有效期（有操作就顺延） |
+| `BRUNO_WEB_SESSION_TTL_HOURS` | `12` | 登录有效期（有操作就顺延；登录记在数据目录的 `sessions.json`，服务重启不会掉登录，改密码会让所有人重新登录） |
 | `BRUNO_WEB_MAX_RESULT_MB` / `BRUNO_WEB_MAX_MESSAGE_MB` | `512` / `64` | 服务器发往页面、页面发往服务器的单条消息上限 |
 | `BRUNO_WEB_DEBUG_IPC` | `false` | 在浏览器控制台打印每条通信消息（排障用） |
 

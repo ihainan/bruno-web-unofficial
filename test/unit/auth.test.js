@@ -1,7 +1,13 @@
 process.env.BRUNO_WEB_AUTH = 'password';
 process.env.BRUNO_WEB_PASSWORD = 'correct horse';
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+// Keep the sessions file out of the repository's data directory.
+process.env.BRUNO_WEB_DATA = fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-'));
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const config = require('../../server/config');
 const { Auth, scryptHash, verifyPassword } = require('../../server/auth');
 
 const req = (headers = {}) => ({ headers, socket: { remoteAddress: '10.0.0.1' }, secure: false });
@@ -52,4 +58,36 @@ test('the same host on another scheme is not the same origin', () => {
   const r = { headers: { origin: 'https://bruno.example:8484', host: 'bruno.example:8484' }, socket: { remoteAddress: 'x' } };
   assert.ok(!auth.isSameOrigin(r));
   assert.ok(!auth.isSameOrigin({ headers: { origin: 'file://bruno.example:8484', host: 'bruno.example:8484' }, socket: {} }));
+});
+
+test('a login survives a restart, but not a password change or a logout', () => {
+  const sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-')), 'sessions.json');
+  const result = new Auth({ sessionsFile }).login(req(), 'correct horse');
+  const token = /bruno_web_session=([^;]+)/.exec(result.cookie)[1];
+  const cookie = `bruno_web_session=${token}`;
+
+  assert.ok(!fs.readFileSync(sessionsFile, 'utf8').includes(token), 'the file must not hold the token itself');
+  assert.equal(fs.statSync(sessionsFile).mode & 0o777, 0o600);
+
+  const restarted = new Auth({ sessionsFile });
+  assert.equal(restarted.userFor(req({ cookie })), 'admin');
+
+  const saved = config.password;
+  config.password = 'new password';
+  try {
+    assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie })), null);
+  } finally {
+    config.password = saved;
+  }
+
+  restarted.logout(req({ cookie }));
+  assert.equal(new Auth({ sessionsFile }).userFor(req({ cookie })), null);
+});
+
+test('an unreadable sessions file starts with no sessions instead of failing', () => {
+  const sessionsFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'bruno-web-auth-')), 'sessions.json');
+  fs.writeFileSync(sessionsFile, '{not json');
+  const auth = new Auth({ sessionsFile });
+  assert.equal(auth.sessions.size, 0);
+  assert.ok(auth.login(req(), 'correct horse').ok);
 });
