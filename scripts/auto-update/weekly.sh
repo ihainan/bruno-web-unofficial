@@ -14,7 +14,7 @@
 #
 # Configuration (environment):
 #   BRUNO_WEB_AUTO_DIR        work directory: clone, logs, lock, state (required)
-#   BRUNO_WEB_AUTO_REPO       repository to clone (default: git@github.com:ihainan/bruno-web.git)
+#   BRUNO_WEB_AUTO_REPO       repository to clone (default: git@github.com:ihainan/bruno-web-unofficial.git)
 #   BRUNO_WEB_AUTO_NOTIFY     command run as: $NOTIFY <key> <title> <body>   (optional)
 #   BRUNO_WEB_AUTO_AGENT      agent CLI (default: claude)
 #   BRUNO_WEB_AUTO_BUDGET_USD agent spending cap per run (default: 25)
@@ -29,7 +29,7 @@
 set -uo pipefail
 
 WORK=${BRUNO_WEB_AUTO_DIR:?set BRUNO_WEB_AUTO_DIR}
-REPO_URL=${BRUNO_WEB_AUTO_REPO:-git@github.com:ihainan/bruno-web.git}
+REPO_URL=${BRUNO_WEB_AUTO_REPO:-git@github.com:ihainan/bruno-web-unofficial.git}
 UPSTREAM_REPO=usebruno/bruno
 AGENT=${BRUNO_WEB_AUTO_AGENT:-claude}
 BUDGET=${BRUNO_WEB_AUTO_BUDGET_USD:-25}

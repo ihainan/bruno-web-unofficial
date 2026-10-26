@@ -1,4 +1,4 @@
-# Bruno Web
+# Bruno Web (unofficial)
 
 Use the [Bruno](https://github.com/usebruno/bruno) API client in a browser. Collections live on the server and
 requests are sent from the server, so you can use Bruno from a tablet, a thin laptop, or next to code that only
@@ -36,12 +36,14 @@ Open http://127.0.0.1:8484.
 ## Docker
 
 ```bash
-docker build -t bruno-web .
 docker run -d -p 8484:8484 -v bruno-data:/data \
   -e BRUNO_WEB_PASSWORD='choose-a-password' \
   -e BRUNO_WEB_SECRET_KEY='a-long-random-string' \
-  bruno-web
+  ghcr.io/ihainan/bruno-web-unofficial:latest
 ```
+
+Images are built from `main` (tag `latest`) for linux/amd64; each also carries `sha-<commit>` and `bruno-<release or
+commit>` tags naming the Bruno inside. To build your own: `docker build -t bruno-web .`
 
 The container runs as uid 1000 and keeps everything in `/data`: `userData/` (preferences, cookies, OAuth2 tokens),
 `workspace/` (collections), `uploads/` (files picked in the browser), `sessions.json` (logins).
