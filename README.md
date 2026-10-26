@@ -1,91 +1,134 @@
 # Bruno Web
 
-在浏览器里使用 [Bruno](https://github.com/usebruno/bruno) API 客户端。集合文件存在服务器上，请求从服务器发出。
+Use the [Bruno](https://github.com/usebruno/bruno) API client in a browser. Collections live on the server and
+requests are sent from the server, so you can use Bruno from a tablet, a thin laptop, or next to code that only
+exists on a remote machine.
 
-做法：不改 Bruno 的任何源码。Bruno 桌面版的主进程代码原样运行在 Node 22 里，用一个假的 `electron` 模块替代 Electron；
-Bruno 的前端构建产物原样提供给浏览器，前面注入一个用 WebSocket 实现的 `window.ipcRenderer`。设计与取舍见 [docs/DESIGN.md](docs/DESIGN.md)。
+> **Unofficial.** Bruno Web is an independent project. It is not made, endorsed or supported by the Bruno team.
+> "Bruno" is a trademark of Anoop M D; it is used here only to say which application this runs. Please report
+> problems with Bruno Web here, not to the Bruno project.
 
-## 快速开始（本机）
+## How it works
 
-需要 Node 22.13 以上、git。
+Bruno Web does not modify Bruno. It fetches Bruno at a pinned commit (`UPSTREAM_COMMIT`) and:
+
+- runs the desktop app's main process (`packages/bruno-electron`) unchanged on Node 22, with a stand-in `electron`
+  module (`server/electron-shim/`);
+- serves Bruno's own renderer build to the browser, with a `window.ipcRenderer` that talks to the server over a
+  WebSocket (`web/bridge.js`);
+- replaces the things a browser cannot do the desktop way: native file dialogs become a server-side file browser,
+  exports can be downloaded, OAuth2 sign-in runs in a pop-up, Bruno Apps run in sandboxed iframes.
+
+The design notes, trade-offs and review history are in [docs/DESIGN.md](docs/DESIGN.md) (Chinese).
+
+## Quick start (local)
+
+Requires Node 22.13+ and git.
 
 ```bash
 npm install
-scripts/fetch-upstream.sh          # 按 UPSTREAM_COMMIT 拉取并构建 Bruno（约 3 分钟）
-BRUNO_WEB_AUTH=none npm start      # 只监听 127.0.0.1:8484，免登录
+scripts/fetch-upstream.sh          # fetch and build Bruno at UPSTREAM_COMMIT (about 3 minutes)
+BRUNO_WEB_AUTH=none npm start      # listens on 127.0.0.1:8484 only, no login
 ```
 
-打开 http://127.0.0.1:8484 。
+Open http://127.0.0.1:8484.
 
 ## Docker
 
 ```bash
 docker build -t bruno-web .
 docker run -d -p 8484:8484 -v bruno-data:/data \
-  -e BRUNO_WEB_PASSWORD='换成你的密码' \
-  -e BRUNO_WEB_SECRET_KEY='换成一串随机值' \
+  -e BRUNO_WEB_PASSWORD='choose-a-password' \
+  -e BRUNO_WEB_SECRET_KEY='a-long-random-string' \
   bruno-web
 ```
 
-容器以 uid 1000 运行，所有数据在 `/data`：`userData/`（偏好、Cookie、OAuth2 token）、`workspace/`（集合）、`uploads/`（从浏览器上传的文件）。
+The container runs as uid 1000 and keeps everything in `/data`: `userData/` (preferences, cookies, OAuth2 tokens),
+`workspace/` (collections), `uploads/` (files picked in the browser), `sessions.json` (logins).
 
-部署后访问 `/bruno-web/selfcheck`（需登录）：返回 200 才算部署成功。它会真实执行一次脚本沙箱、SQLite 读写、通过 Bruno 的 HTTP 客户端发一次请求，并核对前端用到的每个通道服务端都有处理。
+After deploying, open `/bruno-web/selfcheck` (logged in). Only a 200 means the deployment works: it runs the script
+sandbox, writes and reads SQLite, sends a real request through Bruno's HTTP client, and checks that every channel the
+page uses has a handler on the server.
 
-## 配置
+## Configuration
 
-| 环境变量 | 默认 | 说明 |
+| Variable | Default | Meaning |
 | --- | --- | --- |
-| `PORT` / `HOST` | `8484` / `127.0.0.1` | 监听地址（镜像里 `HOST=0.0.0.0`） |
-| `BRUNO_WEB_DATA` | `./data` | 数据目录 |
-| `BRUNO_WEB_ROOTS` | `$BRUNO_WEB_DATA/workspace` | 文件对话框可浏览的目录，多个用 `:` 分隔 |
-| `BRUNO_WEB_AUTH` | `password` | `password`、`proxy`（由反向代理认证）、`none`（仅限回环地址） |
-| `BRUNO_WEB_PASSWORD` / `BRUNO_WEB_PASSWORD_HASH` | | 登录密码，或 `scrypt$盐$哈希` 形式的哈希 |
-| `BRUNO_WEB_PROXY_USER_HEADER` / `BRUNO_WEB_PROXY_SECRET_HEADER` / `BRUNO_WEB_PROXY_SECRET` | | `proxy` 模式：用户名头、共享密钥头与密钥 |
-| `BRUNO_WEB_PUBLIC_URL` | | 对外地址（如 `https://bruno.example.com`）；设置后只接受来自它的页面，OAuth2 回调地址也据此生成 |
-| `BRUNO_WEB_TRUST_PROXY` | `false` | 信任 `X-Forwarded-*` 头 |
-| `BRUNO_WEB_SECRET_KEY` | 自动生成到 `userData/` | 加密保存密钥类数据的主密钥 |
-| `BRUNO_WEB_ALLOW_DEVELOPER_MODE` | `false` | 允许脚本「开发者模式」和安装 npm 包——等于允许在服务器上执行任意代码 |
-| `BRUNO_WEB_ENABLE_TERMINAL` | `false` | 内置终端——等于给浏览器一个服务器 shell |
-| `BRUNO_WEB_BLOCK_METADATA` | `true` | 拒绝连接 169.254.0.0/16 等云元数据地址（尽力而为，见下） |
-| `BRUNO_WEB_SAMPLE_COLLECTION` | `true` | 首次启动导入示例集合 |
-| `BRUNO_WEB_SESSION_TTL_HOURS` | `12` | 登录有效期（有操作就顺延；登录记在数据目录的 `sessions.json`，服务重启不会掉登录，改密码会让所有人重新登录） |
-| `BRUNO_WEB_MAX_RESULT_MB` / `BRUNO_WEB_MAX_MESSAGE_MB` | `512` / `64` | 服务器发往页面、页面发往服务器的单条消息上限 |
-| `BRUNO_WEB_DEBUG_IPC` | `false` | 在浏览器控制台打印每条通信消息（排障用） |
+| `PORT` / `HOST` | `8484` / `127.0.0.1` | Listen address (`HOST=0.0.0.0` in the image) |
+| `BRUNO_WEB_DATA` | `./data` | Data directory |
+| `BRUNO_WEB_ROOTS` | `$BRUNO_WEB_DATA/workspace` | Directories the file dialogs may browse, separated by `:` |
+| `BRUNO_WEB_AUTH` | `password` | `password`, `proxy` (a reverse proxy authenticates), or `none` (loopback only) |
+| `BRUNO_WEB_PASSWORD` / `BRUNO_WEB_PASSWORD_HASH` | | The login password, or its hash as `scrypt$<salt hex>$<hash hex>` |
+| `BRUNO_WEB_PROXY_USER_HEADER` / `BRUNO_WEB_PROXY_SECRET_HEADER` / `BRUNO_WEB_PROXY_SECRET` | | `proxy` mode: user header, shared-secret header and the secret |
+| `BRUNO_WEB_PUBLIC_URL` | | Public address (e.g. `https://bruno.example.com`); only pages from it are accepted, and OAuth2 callback URLs are built from it |
+| `BRUNO_WEB_TRUST_PROXY` | `false` | Trust `X-Forwarded-*` headers |
+| `BRUNO_WEB_SECRET_KEY` | generated into `userData/` | Master key for secrets Bruno stores encrypted |
+| `BRUNO_WEB_ALLOW_DEVELOPER_MODE` | `false` | Allow scripts' Developer Mode and npm installs, i.e. arbitrary code on the server |
+| `BRUNO_WEB_ENABLE_TERMINAL` | `false` | The built-in terminal, i.e. a server shell in the browser |
+| `BRUNO_WEB_BLOCK_METADATA` | `true` | Refuse connections to cloud metadata addresses such as 169.254.0.0/16 (best effort) |
+| `BRUNO_WEB_SAMPLE_COLLECTION` | `true` | Import a sample collection on first start |
+| `BRUNO_WEB_SESSION_TTL_HOURS` | `12` | Login lifetime, extended while in use. Logins survive restarts; changing the password logs everyone out |
+| `BRUNO_WEB_MAX_RESULT_MB` / `BRUNO_WEB_MAX_MESSAGE_MB` | `512` / `64` | Largest single message server → page and page → server |
+| `BRUNO_WEB_DEBUG_IPC` | `false` | Log every message in the browser console |
 
-所有 `BRUNO_WEB_*` 变量读入后会从进程环境中删除，集合脚本（`bru.getProcessEnv()`）读不到它们。
+All `BRUNO_WEB_*` variables are removed from the process environment once read, so collection scripts
+(`bru.getProcessEnv()`) cannot see them.
 
-## 安全须知
+## Security model
 
-- **一个实例给一个人（或一个互相信任的小组）用。** 多人使用请每人一个容器，由统一登录网关按用户路由。
-- 请求从服务器发出，`localhost` 指服务器自己，能访问服务器所在网段。请用防火墙或 K8s NetworkPolicy 约束容器出站。
-- 文件根目录只限制文件对话框的浏览范围；进程能读写该用户（uid 1000）能访问的一切文件，真正的边界是容器。
-- 不要把平台凭据放进容器的环境变量（脚本能读到除 `BRUNO_WEB_*` 外的环境变量）。
+Read this before exposing an instance to anyone else.
 
-## 与桌面版的差异
+- **One instance per person, or per small group that trusts each other.** There is one shared password and no
+  per-user accounts or permissions. For many users, run one container per user behind a single sign-on proxy
+  (`BRUNO_WEB_AUTH=proxy`).
+- **Do not put it on the internet without a login in front.** `BRUNO_WEB_AUTH=none` only starts on a loopback
+  address for this reason.
+- **Requests come from the server.** `localhost` means the server, and the server's network is reachable. Restrict the
+  container's outbound traffic (firewall, Kubernetes NetworkPolicy).
+- **The container is the boundary.** `BRUNO_WEB_ROOTS` limits what the file dialogs show, not what the process can
+  read or write.
+- **Code execution features are off by default**: Developer Mode scripts, npm installs and the terminal.
+- Do not pass platform credentials to the container as environment variables; scripts can read everything except
+  `BRUNO_WEB_*`.
 
-| 场景 | 网页版 |
+## Differences from the desktop app
+
+| Area | Bruno Web |
 | --- | --- |
-| 选文件/文件夹 | 网页里的服务器文件浏览器；可从本机上传 |
-| 导出 | 可选「下载到本机」或「保存到服务器」 |
-| OAuth2 登录 | 在弹窗里登录；回调地址设为 `<对外地址>/bruno-web/oauth2/callback` 可自动完成（含隐式授权），否则把回跳地址粘贴回 Bruno。无法为授权页注入自定义请求头，也不能按 Bruno 设置忽略证书错误 |
-| Bruno Apps | 运行在不透明源的沙箱 iframe 里（彼此隔离，也拿不到 Bruno 的登录状态），没有 localStorage 等存储，`location.origin` 是 `null`；只允许写剪贴板，读剪贴板、定位、摄像头等一律拒绝 |
-| 导入引用了其他文件的 WSDL | 浏览器只交出所选文件本身，被引用的 `.xsd` 找不到，所以这类多文件 WSDL 无法从本机导入（单文件 WSDL 正常） |
-| 大响应 | 支持；响应要经网络传到浏览器，50 MB 的响应约需传输 90 MB（上限 `BRUNO_WEB_MAX_RESULT_MB`，默认 512） |
-| 关闭标签页 | 有未保存的请求时浏览器会询问是否离开（桌面版是退出时询问） |
-| 手机和平板 | 触屏且宽度不超过 1024 时：侧栏变成抽屉（标题栏右上角的侧栏按钮开关，选中请求后自动收起，不影响电脑上的侧栏状态）；侧栏的「…」菜单常驻显示；弹窗按屏幕宽度显示，表格可横向滑动。宽度不超过 900 时请求区和响应区、环境设置、偏好设置、Runner 改为上下排列。文件对话框里轻点文件夹即进入。代码编辑器内的选区、输入法等深层触控行为沿用上游，未专门适配 |
-| 多个标签页 | 同一时刻只有一个标签页可用，新标签页会接管 |
-| 脚本开发者模式、终端、npm 安装 | 默认关闭 |
+| Picking files or folders | A file browser for the server, plus upload from your computer |
+| Export | Download to your computer, or save on the server |
+| OAuth2 sign-in | Runs in a pop-up. With the callback URL set to `<public URL>/bruno-web/oauth2/callback` it completes on its own (implicit grant included); otherwise paste the redirect URL back into Bruno. Custom headers for the authorization page and Bruno's "ignore certificate errors" setting do not apply there |
+| Bruno Apps | Run in sandboxed iframes with an opaque origin: isolated from each other and from Bruno's login state, no localStorage, `location.origin` is `null`; clipboard write is allowed, clipboard read, location, camera and the like are refused |
+| WSDL that references other files | The browser hands over only the chosen file, so multi-file WSDL cannot be imported from your computer (single-file WSDL works) |
+| Large responses | Supported; the response travels to the browser, so 50 MB takes about 90 MB on the wire (limit `BRUNO_WEB_MAX_RESULT_MB`) |
+| Closing the tab | The browser asks first when a request has unsaved changes (the desktop app asks when quitting) |
+| Phones and tablets | On touch screens up to 1024 px wide the sidebar becomes a drawer, row menus stay visible, dialogs fit the screen and tables scroll sideways; up to 900 px request and response, environments, preferences and the runner stack vertically. Touch selection and input methods inside the code editors are upstream behaviour and not specially adapted |
+| Several browser tabs | One tab is active at a time; a new tab takes over |
+| Developer Mode scripts, terminal, npm installs | Off by default |
 
-## 测试
+## Tests
 
 ```bash
-npm test                                             # 单元测试
-npx playwright test -c test/e2e/playwright.config.js # 网页版特有行为（文件对话框、断线恢复、接管、OAuth2、安全策略）
-scripts/upstream-e2e.sh --project=default            # 在网页版上运行 Bruno 上游自己的整套端到端测试
+npm test                                             # unit tests
+npx playwright test -c test/e2e/playwright.config.js # Bruno Web behaviour: file dialogs, reconnects, takeover, OAuth2, policies, phones
+scripts/check-upstream-selectors.js                  # every upstream class our CSS/JS relies on still exists
+scripts/upstream-e2e.sh                              # Bruno's own end-to-end suite, run against Bruno Web
 ```
 
-`scripts/upstream-e2e.sh` 原样使用上游的测试和测试夹具，只把「启动 Electron 应用」换成「启动 Bruno Web 服务 + 浏览器标签页」。整套测试较吃内存（每个并行约 1.5 GB），用 `E2E_WORKERS` 控制并行数。
+`scripts/upstream-e2e.sh` uses upstream's tests and fixtures unchanged and only replaces "launch the Electron app"
+with "start a Bruno Web server and open a browser tab". It is memory hungry (about 1.5 GB per worker); set
+`E2E_WORKERS`. Known differences are listed in `test/upstream-e2e/known-failures.txt`, and
+`scripts/compare-upstream-results.js` fails only on failures not listed there.
 
-## 升级 Bruno
+## Upgrading Bruno
 
-改 `UPSTREAM_COMMIT` → `scripts/fetch-upstream.sh` → 看 `/bruno-web/selfcheck` 的通道覆盖和「未实现 Electron API」两项 → 跑上面三组测试。
+`scripts/upstream-gate.sh <commit-or-tag>` fetches and builds that Bruno in a separate directory and runs every check
+above; it exits non-zero on any new failure. By hand: change `UPSTREAM_COMMIT`, run `scripts/fetch-upstream.sh`,
+check `/bruno-web/selfcheck` (channel coverage and "unimplemented Electron APIs"), then run the tests.
+
+## License
+
+Bruno Web is released under the [MIT License](LICENSE).
+
+Bruno is © Anoop M D, Anusree P S and contributors, also under the MIT License. Builds and container images of Bruno
+Web contain Bruno; its license is kept at `upstream/license.md`. Bruno's logo is not used by this project.

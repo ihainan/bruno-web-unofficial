@@ -2,8 +2,16 @@
   "name": "bruno-web",
   "version": "0.1.0",
   "private": true,
-  "description": "Run the Bruno API client in a browser, backed by the unmodified Bruno main-process code on Node.",
+  "description": "Unofficial: run the Bruno API client in a browser, backed by the unmodified Bruno main-process code on Node.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ihainan/bruno-web.git"
+  },
+  "homepage": "https://github.com/ihainan/bruno-web",
+  "bugs": {
+    "url": "https://github.com/ihainan/bruno-web/issues"
+  },
   "engines": {
     "node": ">=22.13"
   },

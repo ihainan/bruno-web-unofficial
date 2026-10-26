@@ -1,0 +1,17 @@
+# Upstream e2e tests that fail on Bruno Web for a known reason.
+# One test per line: "<spec file> › <describe> › <test title>", then "  # reason".
+# scripts/compare-upstream-results.js fails only on failures not listed here,
+# and reports listed tests that now pass so this file can be trimmed.
+
+# Electron-only: the document is served from bruno-app://, each app has its own origin.
+# Bruno Web serves apps from sandboxed iframes with the opaque origin "null"
+# (isolation, crypto.subtle and denied permissions are checked separately).
+tests/apps/apps-secure-context.spec.ts › Apps - secure context › the guest runs in a secure context with a usable subtle crypto  # bruno-app: protocol is Electron-only
+tests/apps/apps-secure-context.spec.ts › Apps - secure context › two apps get separate origins  # opaque origin "null" in a sandboxed iframe
+tests/apps/apps-secure-context.spec.ts › Apps - secure context › sensitive permissions are denied in the app guest  # clipboard-write reports "prompt" in an iframe
+
+# A browser file picker hands over only the chosen file, not sibling .xsd files.
+tests/import/wsdl/import-wsdl.spec.ts › Import WSDL Collection › Import a multi-file WSDL bundle, resolving schemaLocation references  # documented difference
+
+# Needs local port 18888, which is taken on the maintainer's machine.
+tests/proxy/pac/pac-proxy.spec.ts › PAC Proxy › routes requests per PAC directive (PROXY and DIRECT) via HTTP URL  # environment, not Bruno Web
