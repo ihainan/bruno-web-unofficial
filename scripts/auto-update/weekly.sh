@@ -2,7 +2,8 @@
 # Weekly upstream upgrade job.
 #
 # Moves Bruno Web to the newest Bruno release in a dedicated clone, runs the
-# upgrade gate (scripts/upstream-gate.sh), and:
+# upgrade gate (scripts/upstream-gate.sh) with the current pin as its baseline
+# (failures that also happen there do not count), and:
 #   gate passes            commit, push to main (CI then builds the image)
 #   gate fails             run a coding agent to adapt Bruno Web, run the
 #                          whole gate again itself, open a pull request for
@@ -119,6 +120,20 @@ if [ -z "${BRUNO_WEB_AUTO_TARGET:-}" ] && [ -n "$current_tag" ] \
   mark_done "pinned $current_tag is not older than $target_ref"
   NOTIFIED=1; exit 0
 fi
+# Pinned to a main commit: releases are cut on release branches, so a release
+# can lack main's newer work. Only upgrade to a release that contains the pin.
+if [ -z "${BRUNO_WEB_AUTO_TARGET:-}" ] && [ -z "$current_tag" ]; then
+  read -r rel ahead behind < <(gh api "repos/$UPSTREAM_REPO/compare/$current...$target" --jq '"\(.status) \(.ahead_by) \(.behind_by)"') \
+    || fail "target" "比较 $current_label 与 $target_ref 失败"
+  if [ "$rel" != ahead ]; then
+    if [ ! -f "$WORK/state/skipped-$target_ref" ]; then
+      touch "$WORK/state/skipped-$target_ref"
+      notify "bruno-web-weekly-skip" "Bruno $target_ref 不升级" "现在用的是 Bruno 主分支上的 $current_label，最新正式版 $target_ref 不包含它（少 $behind 个提交），换过去会丢功能。先不升级，等出了包含它的正式版再升。"
+    fi
+    mark_done "latest release $target_ref does not contain the pinned $current_label ($rel, $behind behind)"
+    NOTIFIED=1; exit 0
+  fi
+fi
 
 BRANCH="auto/upstream-${target_ref//[^A-Za-z0-9._-]/-}"
 if [ "$FORCE" != 1 ] && git ls-remote --exit-code --heads origin "$BRANCH" > /dev/null 2>&1; then
@@ -135,14 +150,19 @@ if [ "${BRUNO_WEB_AUTO_TEST_BREAK:-0}" = 1 ]; then
 fi
 
 # ---------------------------------------------------------------- gate
-log "gate 1 (upstream $target_ref)"
+export GATE_BASELINE_COMMIT=$current GATE_BASELINE_DIR="$WORK/upstream-baseline"
+log "gate 1 (upstream $target_ref, baseline $current_label)"
 scripts/upstream-gate.sh "$RUN/gate1"
 gate1=$?
 upstream_line() { grep -m1 -E '^upstream e2e:' "$1/upstream-e2e.log" 2>/dev/null; }
 counts() { # gate dir -> one line of upstream counts
   local f="$1/upstream-summary.json"
   [ -f "$f" ] || { echo "上游整套测试未运行"; return; }
-  node -e 'const s=require(process.argv[1]); console.log(`上游测试 ${s.total} 个：首次通过 ${s.passed}，重试后通过 ${s.flaky.length}，已知差异 ${s.known.length}，新失败 ${s.failed.length + s.notRun.length}`)' "$f"
+  node -e 'const s=require(process.argv[1]); const b=(s.baseline||[]).length; console.log(`上游测试 ${s.total} 个：首次通过 ${s.passed}，重试后通过 ${s.flaky.length}，已知差异 ${s.known.length}，${b ? `旧版本也失败 ${b}（不算），` : ""}新失败 ${s.failed.length + s.notRun.length}`)' "$f"
+}
+baseline_note() { # gate dir -> commit message lines for failures the baseline shares
+  local f="$1/upstream-summary.json"
+  [ -f "$f" ] && node -e 'const b=require(process.argv[1]).baseline||[]; if (b.length) console.log(`\nAlso failing against the previous upstream, so not counted:\n${b.map((t) => `  ${t}`).join("\n")}`)' "$f"
 }
 
 push_branch() {
@@ -162,7 +182,7 @@ if [ "$gate1" = 0 ]; then
 Upstream: $COMPARE
 The upgrade gate passed without changes to Bruno Web: unit tests, upstream
 selector check, selfcheck, Bruno Web e2e and upstream's e2e suite.
-$(upstream_line "$RUN/gate1")" || fail "commit" "提交失败"
+$(upstream_line "$RUN/gate1")$(baseline_note "$RUN/gate1")" || fail "commit" "提交失败"
   if [ "$NO_PUSH" = 1 ]; then
     log "NO_PUSH: would push $BRANCH and fast-forward main"
   elif git push -q origin "HEAD:main"; then

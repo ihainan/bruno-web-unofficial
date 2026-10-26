@@ -11,7 +11,10 @@
 #             (IPC channel coverage, unimplemented Electron APIs, sandbox, HTTP)
 #   web-e2e   Bruno Web's own Playwright suite
 #   upstream  upstream's whole e2e suite; files with unexpected failures are run
-#             once more, then judged against test/upstream-e2e/known-failures.txt
+#             once more, then judged against test/upstream-e2e/known-failures.txt.
+#             With GATE_BASELINE_COMMIT, files still failing are also run against
+#             that (previously pinned) upstream; a test that does not pass there
+#             either was not broken by the upgrade and does not fail the gate.
 #
 # Writes <out-dir>/summary.md, steps.tsv and one log per step; exits non-zero if
 # any step failed. Heavy steps run under scripts/run-guarded.sh.
@@ -21,6 +24,9 @@
 #   E2E_WORKERS            parallel workers for the e2e suites (default 3)
 #   GATE_SKIP_UPSTREAM_E2E 1 skips the upstream suite (quick iteration only)
 #   GATE_SKIP_FETCH        1 reuses the upstream checkout as it is
+#   GATE_BASELINE_COMMIT   upstream commit to compare remaining failures with
+#   GATE_BASELINE_DIR      where to build it (default ./upstream-baseline)
+#   GATE_UPSTREAM_ARGS     run only these upstream spec files (testing the gate only)
 set -uo pipefail
 REPO=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$(mkdir -p "${1:-$REPO/gate-results}" && cd "${1:-$REPO/gate-results}" && pwd)
@@ -64,8 +70,9 @@ selfcheck() {
 }
 
 upstream_e2e() {
-  local run="$OUT/upstream-run" files
-  BRUNO_WEB_E2E_DIR="$run" "$GUARD" "$OUT/upstream-e2e-full.log" scripts/upstream-e2e.sh
+  local run="$OUT/upstream-run" files base code
+  # shellcheck disable=SC2086 # GATE_UPSTREAM_ARGS is a list of spec files
+  BRUNO_WEB_E2E_DIR="$run" "$GUARD" "$OUT/upstream-e2e-full.log" scripts/upstream-e2e.sh ${GATE_UPSTREAM_ARGS:-}
   cp "$run/results.json" "$OUT/upstream-results.json" 2>/dev/null || { echo "no results.json from the full run"; return 2; }
   if node scripts/compare-upstream-results.js "$OUT/upstream-results.json" --failed-files "$OUT/upstream-failed-files.txt" > "$OUT/upstream-first-pass.txt"; then
     cat "$OUT/upstream-first-pass.txt"
@@ -78,7 +85,28 @@ upstream_e2e() {
   echo "rerunning ${#files[@]} file(s) with unexpected failures"
   BRUNO_WEB_E2E_DIR="$run" E2E_WORKERS=2 "$GUARD" "$OUT/upstream-e2e-rerun.log" scripts/upstream-e2e.sh "${files[@]}"
   cp "$run/results.json" "$OUT/upstream-rerun-results.json" 2>/dev/null || { echo "no results.json from the rerun"; return 2; }
-  node scripts/compare-upstream-results.js "$OUT/upstream-results.json" "$OUT/upstream-rerun-results.json" --json "$OUT/upstream-summary.json"
+  node scripts/compare-upstream-results.js "$OUT/upstream-results.json" "$OUT/upstream-rerun-results.json" \
+    --json "$OUT/upstream-summary.json" --failed-files "$OUT/upstream-failed-files.txt" > "$OUT/upstream-second-pass.txt"
+  code=$?
+  if [ "$code" != 1 ] || [ -z "${GATE_BASELINE_COMMIT:-}" ]; then
+    cat "$OUT/upstream-second-pass.txt"
+    return "$code"
+  fi
+  # Timing-sensitive upstream tests fail on a loaded machine whatever the
+  # version. Run what still fails against the previously pinned upstream: only
+  # tests that pass there count as broken by the upgrade.
+  base=${GATE_BASELINE_DIR:-$REPO/upstream-baseline}
+  mapfile -t files < "$OUT/upstream-failed-files.txt"
+  echo "running ${#files[@]} file(s) against the baseline upstream $GATE_BASELINE_COMMIT"
+  if ! scripts/fetch-upstream.sh "$base" "$GATE_BASELINE_COMMIT" > "$OUT/upstream-baseline-fetch.log" 2>&1; then
+    echo "could not build the baseline, see $OUT/upstream-baseline-fetch.log"
+    cat "$OUT/upstream-second-pass.txt"
+    return 1
+  fi
+  BRUNO_WEB_UPSTREAM="$base" BRUNO_WEB_E2E_DIR="$run" E2E_WORKERS=2 "$GUARD" "$OUT/upstream-e2e-baseline.log" scripts/upstream-e2e.sh "${files[@]}"
+  cp "$run/results.json" "$OUT/upstream-baseline-results.json" 2>/dev/null || { echo "no results.json from the baseline run"; cat "$OUT/upstream-second-pass.txt"; return 2; }
+  node scripts/compare-upstream-results.js "$OUT/upstream-results.json" "$OUT/upstream-rerun-results.json" \
+    --baseline "$OUT/upstream-baseline-results.json" --json "$OUT/upstream-summary.json"
 }
 
 if [ "${GATE_SKIP_FETCH:-0}" = 1 ]; then
@@ -113,7 +141,7 @@ fi
   if [ -f "$OUT/upstream-e2e.log" ]; then
     echo
     echo '```'
-    grep -E '^upstream e2e:|^  (passed|known|NEW|did not|skipped|FAILED|NOT RUN|flaky|listed)' "$OUT/upstream-e2e.log" | tail -60
+    grep -E '^upstream e2e:|^  (passed|known|fail on|NEW|did not|skipped|FAILED|NOT RUN|BASELINE|flaky|listed)' "$OUT/upstream-e2e.log" | head -60
     echo '```'
   fi
   if [ -f "$OUT/selfcheck.json" ]; then

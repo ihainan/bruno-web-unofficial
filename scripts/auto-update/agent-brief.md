@@ -5,6 +5,8 @@ Working copy: {{REPO}} (a dedicated clone), branch {{BRANCH}}.
 Upstream Bruno was moved from {{CURRENT}} to {{TARGET}}: {{COMPARE_URL}}
 The upgrade gate (`scripts/upstream-gate.sh`) failed. Its output is in {{GATE_DIR}}: `summary.md` and `steps.tsv`
 first, then one log per step (`selfcheck.json`, `upstream-summary.json`, `upstream-e2e*.log`, `web-e2e*.log`, ...).
+Upstream tests that still failed were also run against the previous pin ({{CURRENT}}); those failing there too are
+listed as BASELINE and do not count. Every failure left passed against the previous pin or is a test it lacks.
 
 Gate summary:
 

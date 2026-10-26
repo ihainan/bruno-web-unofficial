@@ -122,9 +122,12 @@ with "start a Bruno Web server and open a browser tab". It is memory hungry (abo
 
 ## Upgrading Bruno
 
-`scripts/upstream-gate.sh <commit-or-tag>` fetches and builds that Bruno in a separate directory and runs every check
-above; it exits non-zero on any new failure. By hand: change `UPSTREAM_COMMIT`, run `scripts/fetch-upstream.sh`,
-check `/bruno-web/selfcheck` (channel coverage and "unimplemented Electron APIs"), then run the tests.
+Change `UPSTREAM_COMMIT`, then run `scripts/upstream-gate.sh [out-dir]`: it fetches and builds that Bruno, checks
+`/bruno-web/selfcheck` (channel coverage and "unimplemented Electron APIs") and runs every test above, and exits
+non-zero on any new failure. Some upstream tests are timing-sensitive and fail on a busy machine whatever the
+version; with `GATE_BASELINE_COMMIT=<previous commit>` the gate runs the files that still fail against that commit
+too, and failures that also happen there do not count. `scripts/auto-update/weekly.sh` does all of this weekly,
+moving only to a Bruno release that contains the current pin.
 
 ## License
 

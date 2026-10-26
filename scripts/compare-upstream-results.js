@@ -3,11 +3,12 @@
  * Judges a run of upstream's e2e suite (scripts/upstream-e2e.sh) against
  * test/upstream-e2e/known-failures.txt.
  *
- *   scripts/compare-upstream-results.js results.json [rerun-results.json ...] [--json summary.json] [--failed-files out.txt]
+ *   scripts/compare-upstream-results.js results.json [rerun-results.json ...]
+ *     [--baseline baseline-results.json] [--json summary.json] [--failed-files out.txt]
  *
  * Later result files override earlier ones test by test (use this for a rerun
- * of the failed files). Exit 0 when every failure is a listed one, 1 when
- * there are new failures, 2 on bad input.
+ * of the failed files). Exit 0 when every failure is a listed one or also fails
+ * on the baseline, 1 when there are new failures, 2 on bad input.
  *
  * A test counts as:
  *   passed         passed on the first attempt
@@ -18,6 +19,11 @@
  *                  stopped after an earlier failure, or the run was cut short);
  *                  counted as failed unless a known failure in the same file explains it
  *   skipped        skipped by upstream (test.skip / fixme)
+ *   baseline       failed or not run, and did not pass either in the baseline
+ *                  results: the same files run against the previously pinned
+ *                  upstream. Such a failure was not introduced by the upgrade
+ *                  (usually a timing-sensitive upstream test); it is listed but
+ *                  does not fail the run. A test the baseline lacks still counts.
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -26,9 +32,10 @@ const repoRoot = path.resolve(__dirname, '..');
 const KNOWN_FILE = path.join(repoRoot, 'test', 'upstream-e2e', 'known-failures.txt');
 
 const parseArgs = (argv) => {
-  const out = { files: [], json: null, failedFiles: null };
+  const out = { files: [], json: null, failedFiles: null, baseline: null };
   for (let i = 0; i < argv.length; i++) {
     if (argv[i] === '--json') out.json = argv[++i];
+    else if (argv[i] === '--baseline') out.baseline = argv[++i];
     else if (argv[i] === '--failed-files') out.failedFiles = argv[++i];
     else out.files.push(argv[i]);
   }
@@ -74,7 +81,11 @@ const loadResults = (file) => {
 const main = () => {
   const args = parseArgs(process.argv.slice(2));
   if (!args.files.length) {
-    console.error('usage: compare-upstream-results.js results.json [rerun.json ...] [--json out] [--failed-files out]');
+    console.error('usage: compare-upstream-results.js results.json [rerun.json ...] [--baseline baseline.json] [--json out] [--failed-files out]');
+    process.exit(2);
+  }
+  if (args.baseline && !fs.existsSync(args.baseline)) {
+    console.error(`missing baseline results file: ${args.baseline}`);
     process.exit(2);
   }
   const known = loadKnown();
@@ -90,11 +101,16 @@ const main = () => {
     }
   }
 
-  const summary = { total: tests.size, passed: 0, flaky: [], known: [], failed: [], notRun: [], skipped: 0, knownNowPassing: [] };
+  const baseline = args.baseline ? loadResults(args.baseline) : new Map();
+  const failsOnBaseline = (key) => ['failed', 'not run'].includes(baseline.get(key)?.outcome);
+
+  const summary = { total: tests.size, passed: 0, flaky: [], known: [], failed: [], notRun: [], baseline: [], skipped: 0, knownNowPassing: [] };
   const filesWithKnown = new Set();
   for (const t of tests.values()) if (t.outcome === 'failed' && known.has(t.id)) filesWithKnown.add(t.file);
-  for (const t of tests.values()) {
-    if (t.outcome === 'passed') summary.passed += 1;
+  for (const [key, t] of tests) {
+    const unexpected = (t.outcome === 'failed' && !known.has(t.id)) || (t.outcome === 'not run' && !filesWithKnown.has(t.file));
+    if (unexpected && failsOnBaseline(key)) summary.baseline.push(t.id);
+    else if (t.outcome === 'passed') summary.passed += 1;
     else if (t.outcome === 'skipped') summary.skipped += 1;
     else if (t.outcome === 'flaky') summary.flaky.push(t.id);
     else if (t.outcome === 'failed') (known.has(t.id) ? summary.known : summary.failed).push(t.id);
@@ -110,12 +126,14 @@ const main = () => {
     `  passed first time   ${summary.passed}`,
     `  passed after retry  ${summary.flaky.length}`,
     `  known failures      ${summary.known.length}`,
+    ...(args.baseline ? [`  fail on baseline too ${summary.baseline.length}`] : []),
     `  NEW failures        ${summary.failed.length}`,
     `  did not run         ${summary.notRun.length}`,
     `  skipped by upstream ${summary.skipped}`
   ];
   for (const id of summary.failed) lines.push(`  FAILED   ${id}`);
   for (const id of summary.notRun) lines.push(`  NOT RUN  ${id}`);
+  for (const id of summary.baseline) lines.push(`  BASELINE ${id}`);
   for (const id of summary.flaky) lines.push(`  flaky    ${id}`);
   for (const id of summary.knownNowPassing) lines.push(`  listed as known but passes now (remove it): ${id}`);
   for (const id of summary.knownMissing) lines.push(`  listed as known but no longer exists (remove it): ${id}`);
