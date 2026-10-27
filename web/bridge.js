@@ -344,8 +344,11 @@
         dialogs.download(params);
         return;
       case 'zoom':
-        // Electron zoom levels are steps of 20 % on a log scale.
-        document.documentElement.style.zoom = String(Math.pow(1.2, Number(params.level) || 0));
+        // Not applied. Electron zooms the viewport; a page can only zoom its
+        // content (CSS zoom), which leaves layouts sized in vh short or cut
+        // off and skews drags and popovers, since those mix zoomed and
+        // unzoomed coordinates. The browser's own zoom is the faithful
+        // equivalent; see ZOOM_CHANNELS and the zoom keys below.
         return;
       case 'reload':
         location.reload();
@@ -451,10 +454,42 @@
     return out;
   };
 
+  // Leave Cmd/Ctrl with + - = 0 to the browser's zoom: Bruno binds them to
+  // its own zoom, which is not applied here. Capturing on window runs before
+  // Bruno's key handlers on document; the browser's default action still runs.
+  window.addEventListener('keydown', (e) => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && ['=', '+', '-', '_', '0'].includes(e.key)) e.stopImmediatePropagation();
+  }, true);
+
   // --------------------------------------------------------------- ipcRenderer
   const invokeError = (channel, err) => new Error(`Error invoking remote method '${channel}': Error: ${err.message}`);
 
+  // Window actions of the desktop app (the app menu on Windows / Linux,
+  // Preferences > Display > Zoom). The main process treats them as no-ops;
+  // the page does what a browser tab can, while the click is still a user
+  // gesture, or says what to use instead.
+  const mac = /Mac|iPhone|iPad/.test(navigator.userAgent);
+  const hint = (key, vars) => ui.toast(t(key, vars), { timeout: 8000 });
+  // Zoom is saved but not applied (see 'zoom' in onNotify).
+  const zoomHint = () => hint('useBrowserZoom', { keys: mac ? '⌘ +  ⌘ −  ⌘ 0' : 'Ctrl +  Ctrl −  Ctrl 0' });
+  const WINDOW_ACTIONS = {
+    'renderer:set-zoom-level': zoomHint,
+    'renderer:zoom-in': zoomHint,
+    'renderer:zoom-out': zoomHint,
+    'renderer:reset-zoom': zoomHint,
+    'renderer:toggle-fullscreen': () => {
+      const done = document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+      Promise.resolve(done).catch(() => hint('fullscreenRefused'));
+    },
+    'renderer:toggle-devtools': () => hint('useBrowserDevtools', { keys: mac ? '⌥ ⌘ I' : 'F12' }),
+    'renderer:window-close': () => hint('closeTab')
+  };
+  const windowAction = (channel) => {
+    if (WINDOW_ACTIONS[channel]) WINDOW_ACTIONS[channel]();
+  };
+
   const invoke = async (channel, ...args) => {
+    windowAction(channel);
     const needed = uploadsReferencedBy(args);
     if (needed.length) {
       await Promise.all(needed.map((e) => e.promise));
@@ -477,6 +512,7 @@
   window.ipcRenderer = {
     invoke,
     send: (channel, ...args) => {
+      windowAction(channel);
       if (stopped) return;
       try {
         post({ t: 'send', ch: channel, args });

@@ -242,6 +242,54 @@ test('the terminal and npm installs are refused by default', async ({ page, serv
   expect(results['renderer:install-postman-packages']).toMatch(/runs code on the server/);
 });
 
+test('Bruno\'s zoom is left to the browser: the layout keeps filling the window', async ({ page, server }) => {
+  const srv = await server();
+  await openApp(page, srv);
+  const fills = () => page.evaluate(() => {
+    const main = document.getElementById('main-container').getBoundingClientRect();
+    return { zoom: document.documentElement.style.zoom, bottom: Math.round(main.bottom), height: innerHeight };
+  });
+  const toasts = page.locator('bruno-web-ui .toast');
+
+  // Preferences > Display > Zoom 90 %: not applied as CSS zoom (which left a
+  // gap under the app and skewed drags), but the user is told what to use.
+  await page.evaluate(() => window.ipcRenderer.invoke('renderer:set-zoom-level', Math.log(0.9) / Math.log(1.2)));
+  await expect(toasts.filter({ hasText: /browser|浏览器/ })).toHaveCount(1);
+  const after = await fills();
+  expect(after.zoom).toBe('');
+  expect(after.bottom).toBe(after.height);
+
+  // Bruno's zoom shortcut does not reach Bruno, so the browser zooms instead.
+  await page.keyboard.press('Control+Minus');
+  await page.keyboard.press('Control+Equal');
+  await page.waitForTimeout(1000);
+  await expect(toasts).toHaveCount(1);
+});
+
+test('the app menu\'s window actions do what a browser tab can, or say what to use', async ({ page, server }) => {
+  const srv = await server();
+  await openApp(page, srv);
+  const toasts = page.locator('bruno-web-ui .toast');
+  const pick = async (label) => {
+    await page.getByRole('button', { name: 'Menu' }).click();
+    await page.getByText('View', { exact: true }).hover();
+    await page.getByText(label, { exact: true }).click();
+  };
+
+  await pick('Full Screen');
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(true);
+  await pick('Full Screen');
+  await expect.poll(() => page.evaluate(() => !!document.fullscreenElement)).toBe(false);
+
+  await pick('Developer Tools');
+  await expect(toasts.filter({ hasText: /developer tools|开发者工具/i })).toHaveCount(1);
+
+  await page.getByRole('button', { name: 'Menu' }).click();
+  await page.getByText('File', { exact: true }).hover();
+  await page.getByText('Quit', { exact: true }).click();
+  await expect(toasts.filter({ hasText: /close this browser tab|关闭这个浏览器标签页/ })).toHaveCount(1);
+});
+
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 

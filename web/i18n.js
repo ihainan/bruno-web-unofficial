@@ -46,7 +46,11 @@
     willSelect: 'Will select:',
     serverPath: 'Server path',
     item: 'item',
-    items: 'items'
+    items: 'items',
+    useBrowserZoom: 'Bruno Web does not zoom the page itself. Use your browser\'s zoom instead: {keys}',
+    useBrowserDevtools: 'Open your browser\'s developer tools instead: {keys}',
+    closeTab: 'To quit, close this browser tab or window.',
+    fullscreenRefused: 'The browser did not allow full screen.'
   };
   const zh = {
     connecting: '正在连接 Bruno 服务器…',
@@ -94,7 +98,11 @@
     willSelect: '将选择：',
     serverPath: '服务器路径',
     item: '项',
-    items: '项'
+    items: '项',
+    useBrowserZoom: '网页版不能自己缩放界面，请用浏览器的缩放：{keys}',
+    useBrowserDevtools: '请改用浏览器的开发者工具：{keys}',
+    closeTab: '要退出，关闭这个浏览器标签页或窗口即可。',
+    fullscreenRefused: '浏览器没有允许全屏。'
   };
   const dict = /^zh/i.test(navigator.language || '') ? zh : en;
   window.BrunoWebI18n = {

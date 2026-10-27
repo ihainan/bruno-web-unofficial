@@ -158,8 +158,11 @@ Bruno-Web/
 `server/index.js` 复刻上游 `index.js` 的 `app.on('ready')` 段中**与窗口无关**的部分，顺序保持一致：
 初始化 shell 环境、系统代理、偏好 → 创建假主窗口 → 依次调用全部 `registerXxxIpc(...)`（和上游同参数）
 → `sqliteService.openDatabase()`、`clearAllRunnerResponses()`、`registerSqliteIpc()`、`appDocuments.handleProtocol()` 等。
-窗口类通道（`renderer:window-*`、`renderer:toggle-devtools`、`renderer:open-about`）由入口注册为空操作或页面侧实现；
-缩放类通道（`renderer:set-zoom-level` 等）转成推送，让页面用 CSS `zoom` 实现。
+窗口类通道（`renderer:window-*`、`renderer:toggle-devtools`、`renderer:toggle-fullscreen`、`renderer:open-about`）由入口注册为空操作，
+页面侧在点击的同时处理：全屏用浏览器 Fullscreen API，开发者工具和退出给出提示。
+缩放类通道（`renderer:set-zoom-level` 等）照常保存偏好，但页面**不应用**：网页只能用 CSS `zoom` 缩放内容、缩放不了视口，
+按 `vh` 定高的布局会留白或被截断，拖拽和弹层也会因放大前后的坐标混用而错位（2026-10-27 实测 90% 时拖 100px 只动 68px）。
+页面改为提示用浏览器自带缩放，并在捕获阶段把 ⌘/Ctrl + `+ - 0` 留给浏览器。
 
 退出时复刻上游 `before-quit` 的清理顺序（关 watcher、卸载 mount、清 runner 响应、回收 SQLite、落盘 Cookie、杀终端），响应 SIGTERM。
 

@@ -104,6 +104,8 @@ Read this before exposing an instance to anyone else.
 | WSDL that references other files | The browser hands over only the chosen file, so multi-file WSDL cannot be imported from your computer (single-file WSDL works) |
 | Large responses | Supported; the response travels to the browser, so 50 MB takes about 90 MB on the wire (limit `BRUNO_WEB_MAX_RESULT_MB`) |
 | Closing the tab | The browser asks first when a request has unsaved changes (the desktop app asks when quitting) |
+| Zoom | Use the browser's zoom (Cmd/Ctrl with + − 0), which works like the desktop app's. Bruno's own zoom setting is saved but not applied: a page can only zoom its content, not the window, which would leave gaps and misplace drags and popovers |
+| Window menu items | Full Screen uses the browser's full screen; Developer Tools and Quit say what to use instead (the browser's developer tools, closing the tab) |
 | Phones and tablets | On touch screens up to 1024 px wide the sidebar becomes a drawer, row menus stay visible, dialogs fit the screen and tables scroll sideways; up to 900 px request and response, environments, preferences and the runner stack vertically. Touch selection and input methods inside the code editors are upstream behaviour and not specially adapted |
 | Several browser tabs | One tab is active at a time; a new tab takes over |
 | Developer Mode scripts, terminal, npm installs | Off by default |
