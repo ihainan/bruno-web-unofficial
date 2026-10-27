@@ -21,7 +21,14 @@ const APP_CSP = [
   'frame-ancestors \'none\''
 ].join('; ');
 
-const LOGIN_CSP = 'default-src \'none\'; style-src \'unsafe-inline\'; form-action \'self\'; script-src \'unsafe-inline\'; frame-ancestors \'none\'; base-uri \'none\'';
+const LOGIN_CSP = 'default-src \'none\'; style-src \'unsafe-inline\'; form-action \'self\'; script-src \'unsafe-inline\'; img-src \'self\'; manifest-src \'self\'; frame-ancestors \'none\'; base-uri \'none\'';
+
+// Home-screen / dock icons and the web app manifest (web/icons/, served without
+// a login: browsers fetch the manifest without cookies).
+const ICON_LINKS = [
+  '<link rel="apple-touch-icon" href="/bruno-web/icons/apple-touch-icon.png">',
+  '<link rel="manifest" href="/bruno-web/icons/manifest.webmanifest">'
+].join('');
 
 // Guest documents (HTML previews, Bruno apps) run in a sandboxed iframe with an
 // opaque origin; they cannot reach our cookies or the page.
@@ -39,6 +46,7 @@ const escapeHtml = (s) => String(s)
  */
 const buildIndexHtml = (upstreamHtml) => {
   const inject = [
+    ICON_LINKS,
     '<link rel="stylesheet" href="/bruno-web/static/bridge.css">',
     '<link rel="stylesheet" href="/bruno-web/static/mobile.css">',
     '<script src="/bruno-web/config.js"></script>',
@@ -117,6 +125,7 @@ const page = (title, body) => `<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${escapeHtml(title)}</title>
+${ICON_LINKS}
 <style>
   :root { color-scheme: light dark; --bg: #f7f7f8; --card: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --accent: #e5a50a; --accent-fg: #1f2328; --error: #cf222e; }
   @media (prefers-color-scheme: dark) { :root { --bg: #1e1e1e; --card: #252526; --fg: #e6e6e6; --muted: #9da5b4; --border: #3c3c3c; --error: #ff7b72; } }

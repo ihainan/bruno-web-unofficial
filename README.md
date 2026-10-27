@@ -136,4 +136,8 @@ moving only to a Bruno release that contains the current pin.
 Bruno Web is released under the [MIT License](LICENSE).
 
 Bruno is © Anoop M D, Anusree P S and contributors, also under the MIT License. Builds and container images of Bruno
-Web contain Bruno; its license is kept at `upstream/license.md`. Bruno's logo is not used by this project.
+Web contain Bruno; its license is kept at `upstream/license.md`.
+
+The app icons in `web/icons/` are made from Bruno's desktop icon. Its dog is
+[OpenMoji](https://openmoji.org/library/emoji-1F436/) 1F436, licensed
+[CC BY-SA 4.0](https://creativecommons.org/licenses/by-sa/4.0/); the icons are under the same license.

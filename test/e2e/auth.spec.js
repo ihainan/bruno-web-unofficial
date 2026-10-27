@@ -58,3 +58,21 @@ test('the app needs a login, and the socket only accepts the logged-in page', as
   const evaluate = await fetch(`${srv.base}/bruno-web/test/evaluate`, { method: 'POST' });
   expect(evaluate.status).toBe(401);
 });
+
+test('home-screen icons and the manifest load without a login', async ({ page, server }) => {
+  const srv = await server({ env: { BRUNO_WEB_AUTH: 'password', BRUNO_WEB_PASSWORD: PASSWORD, BRUNO_WEB_TEST_HOOKS: 'false' } });
+  await page.goto(`${srv.base}/bruno-web/login`);
+  const href = (rel) => page.locator(`link[rel="${rel}"]`).getAttribute('href');
+  // Browsers fetch the manifest without cookies, so none of this may need a session.
+  const manifest = await (await fetch(`${srv.base}${await href('manifest')}`)).json();
+  expect(manifest.icons.map((i) => i.purpose)).toEqual(['any', 'any', 'maskable']);
+  for (const src of [await href('apple-touch-icon'), ...manifest.icons.map((i) => i.src)]) {
+    const res = await fetch(`${srv.base}${src}`);
+    expect(res.status, src).toBe(200);
+    expect(res.headers.get('content-type')).toBe('image/png');
+  }
+  // The login page's CSP lets the browser use them.
+  const csp = (await fetch(`${srv.base}/bruno-web/login`)).headers.get('content-security-policy');
+  expect(csp).toContain("img-src 'self'");
+  expect(csp).toContain("manifest-src 'self'");
+});

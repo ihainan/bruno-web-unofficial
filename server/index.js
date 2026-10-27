@@ -76,6 +76,7 @@ const main = async () => {
   if (config.publicUrl) policy.setPublicOrigin(config.publicUrl);
 
   app.get('/bruno-web/healthz', (req, res) => res.json({ ok: true }));
+  app.use('/bruno-web/icons', express.static(path.join(WEB_DIR, 'icons'), { index: false, maxAge: '1d' }));
   require('./test-hooks').installTestHooks(app, auth);
 
   app.get('/bruno-web/login', (req, res) => {
