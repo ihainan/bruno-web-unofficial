@@ -99,7 +99,7 @@ Read this before exposing an instance to anyone else.
 | --- | --- |
 | Picking files or folders | A file browser for the server, plus upload from your computer |
 | Export | Download to your computer, or save on the server |
-| OAuth2 sign-in | Runs in a pop-up. With the callback URL set to `<public URL>/bruno-web/oauth2/callback` it completes on its own (implicit grant included); otherwise paste the redirect URL back into Bruno. Custom headers for the authorization page and Bruno's "ignore certificate errors" setting do not apply there |
+| OAuth2 sign-in | Runs in a pop-up. With the callback URL set to `<public URL>/bruno-web/oauth2/callback` it completes on its own (implicit grant included); otherwise paste the redirect URL back into Bruno. After cancelling or pasting, close the pop-up yourself: a page may not close a window that shows another site. Custom headers for the authorization page and Bruno's "ignore certificate errors" setting do not apply there |
 | Bruno Apps | Run in sandboxed iframes with an opaque origin: isolated from each other and from Bruno's login state, no localStorage, `location.origin` is `null`; clipboard write is allowed, clipboard read, location, camera and the like are refused |
 | WSDL that references other files | The browser hands over only the chosen file, so multi-file WSDL cannot be imported from your computer (single-file WSDL works) |
 | Large responses | Supported; the response travels to the browser, so 50 MB takes about 90 MB on the wire (limit `BRUNO_WEB_MAX_RESULT_MB`) |

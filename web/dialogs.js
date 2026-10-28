@@ -434,9 +434,17 @@
     const opened = openPopup();
 
     const input = h('input', { class: 'input', type: 'url', placeholder: 'https://…', 'aria-label': t('authPasteLabel') });
+    // Ended from here (cancelled, or finished by pasting the address): the
+    // window is then on another site, where this page may not close it.
+    let endedHere = false;
+    const cancel = () => {
+      endedHere = true;
+      close();
+    };
     const submit = () => {
       const value = input.value.trim();
       if (!/^[a-z][a-z0-9+.-]*:/i.test(value)) return;
+      endedHere = true;
       navigate(value);
     };
     input.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
@@ -465,12 +473,12 @@
       footer: [
         h('button', { class: opened ? 'btn ghost' : 'btn primary', onClick: () => openPopup() }, icon('external', 14), t('authReopen')),
         h('div', { class: 'spacer' }),
-        h('button', { class: 'btn', onClick: () => close() }, t('cancel')),
+        h('button', { class: 'btn', onClick: cancel }, t('cancel')),
         h('button', { class: opened ? 'btn primary' : 'btn', onClick: submit }, t('authSubmit'))
       ],
-      onCancel: () => close()
+      onCancel: cancel
     });
-    authWindows.set(id, { panel: p, popup: () => popup });
+    authWindows.set(id, { panel: p, popup: () => popup, endedHere: () => endedHere });
   };
 
   const closeAuthWindow = (id) => {
@@ -480,6 +488,10 @@
     entry.panel.close();
     const popup = entry.popup();
     try { if (popup && !popup.closed) popup.close(); } catch (e) {}
+    // Cutting the opener link (see openAuthWindow) also takes away the right
+    // to close the window, or even to see whether it is still open, once it
+    // shows another site.
+    if (popup && entry.endedHere()) toast(t('authCloseYourself'), { timeout: 8000 });
   };
 
   const openExternal = (url) => {
