@@ -279,6 +279,35 @@ test('the diff stylesheet Bruno links with the wrong letter case loads', async (
   })).toBeGreaterThan(0);
 });
 
+test('over plain http on a LAN address, copy actions still reach the clipboard', async ({ playwright, server, echo }) => {
+  // Any name other than localhost is an insecure origin over http, like a LAN IP.
+  const browser = await playwright.chromium.launch({ args: ['--host-resolver-rules=MAP bruno-lan.test 127.0.0.1'] });
+  try {
+    const page = await browser.newPage();
+    const srv = await server({ env: { BRUNO_WEB_AUTH: 'password', BRUNO_WEB_PASSWORD: 'lan', BRUNO_WEB_TEST_HOOKS: 'false' } });
+    writeCollection(path.join(srv.workspace, 'demo'), 'demo', [{ name: 'echo-get', url: `${echo.url}/hello?x=1` }]);
+    await page.goto(`${srv.base.replace('127.0.0.1', 'bruno-lan.test')}/`);
+    await page.fill('#password', 'lan');
+    await page.press('#password', 'Enter');
+    await page.locator('[data-app-state="loaded"]').waitFor({ timeout: 30000 });
+    expect(await page.evaluate(() => window.isSecureContext)).toBe(false);
+    await page.evaluate(() => {
+      window.__copied = [];
+      document.addEventListener('copy', () => window.__copied.push(document.activeElement.value));
+    });
+
+    await openCollectionViaDialog(page, 'demo');
+    await openRequest(page, 'demo', 'echo-get');
+    await send(page);
+    await page.getByTestId('response-actions-menu').click();
+    await page.locator('[role="menuitem"][data-item-id="copy-response"]').click();
+    await expect(page.getByText('Response copied to clipboard')).toBeVisible();
+    expect(await page.evaluate(() => window.__copied.join(''))).toContain('/hello?x=1');
+  } finally {
+    await browser.close();
+  }
+});
+
 test('the app menu\'s window actions do what a browser tab can, or say what to use', async ({ page, server }) => {
   const srv = await server();
   await openApp(page, srv);

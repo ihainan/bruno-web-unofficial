@@ -32,6 +32,39 @@
     }
   }
 
+  // --------------------------------------------------------------- clipboard
+  // Browsers expose navigator.clipboard only on https and localhost. Over
+  // plain http (a LAN address) every copy action in Bruno would fail, and
+  // writeText is the only clipboard call the renderer makes, so it falls back
+  // to the older copy command, which still works within a click. Reading the
+  // clipboard has no such fallback.
+  if (!navigator.clipboard) {
+    const writeText = (text) => new Promise((resolve, reject) => {
+      const active = document.activeElement;
+      const area = document.createElement('textarea');
+      area.value = String(text);
+      area.setAttribute('readonly', '');
+      area.style.cssText = 'position:fixed;top:0;left:0;width:1px;height:1px;opacity:0;';
+      document.body.appendChild(area);
+      area.select();
+      let ok = false;
+      try {
+        ok = document.execCommand('copy');
+      } catch (e) {
+        ok = false;
+      }
+      area.remove();
+      if (active && active.focus) active.focus({ preventScroll: true });
+      if (ok) resolve();
+      else reject(new DOMException('Copying to the clipboard was refused', 'NotAllowedError'));
+    });
+    try {
+      Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    } catch (e) {
+      console.warn('[bruno-web] could not add a clipboard fallback', e);
+    }
+  }
+
   window.isPlaywright = settings.playwright === true;
 
   // --------------------------------------------------------------- utilities
