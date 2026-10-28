@@ -330,6 +330,12 @@
   .console-content {
     max-height: 40dvh;
   }
+
+  /* Share Collection: two cards per row are wider than the dialog. */
+  .bruno-format-grid,
+  .other-format-grid {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
 }
 
 /* ---------------------------------------------------------------- small phones, <= 430 */

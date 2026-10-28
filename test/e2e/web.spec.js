@@ -403,4 +403,24 @@ test.describe('on a phone', () => {
     expect(await table.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(true);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
+
+  test('Share Collection\'s format cards fit the dialog', async ({ page, server }) => {
+    const srv = await server();
+    writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: 'http://127.0.0.1:9/x' }]);
+    await openApp(page, srv);
+    await page.getByTestId('toggle-sidebar-button').tap();
+    await openCollectionViaDialog(page, 'phone');
+    await collectionRow(page, 'phone').tap();
+    if (await page.locator('html.bw-drawer-open').count()) await page.getByTestId('toggle-sidebar-button').tap();
+    await page.getByText('Share Collection', { exact: true }).tap();
+
+    const content = page.locator('.bruno-modal-content');
+    await expect(content.locator('.format-card').first()).toBeVisible();
+    const fits = await content.evaluate((el) => {
+      const right = el.getBoundingClientRect().right;
+      return el.scrollWidth <= el.clientWidth
+        && [...el.querySelectorAll('.format-card, .other-format-card')].every((c) => c.getBoundingClientRect().right <= right);
+    });
+    expect(fits).toBe(true);
+  });
 });
