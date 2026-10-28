@@ -228,6 +228,12 @@ const main = async () => {
     res.type('html').send(indexHtml);
   };
   app.get(['/', '/index.html'], sendIndex);
+  // Upstream links `static/diff2html.min.css` but ships `diff2Html.min.css`; that only works on a
+  // case-insensitive file system (the desktop app on macOS/Windows).
+  app.get('/static/diff2html.min.css', (req, res, next) => {
+    req.url = '/static/diff2Html.min.css';
+    next();
+  });
   app.use(express.static(APP_DIST, { index: false }));
   app.use((req, res) => res.status(404).json({ error: 'Not found' }));
 

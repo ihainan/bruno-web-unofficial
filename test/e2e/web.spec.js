@@ -266,6 +266,19 @@ test('Bruno\'s zoom is left to the browser: the layout keeps filling the window'
   await expect(toasts).toHaveCount(1);
 });
 
+test('the diff stylesheet Bruno links with the wrong letter case loads', async ({ page, server }) => {
+  const srv = await server();
+  await openApp(page, srv);
+  await expect.poll(() => page.evaluate(() => {
+    const sheet = [...document.styleSheets].find((s) => (s.href || '').endsWith('/static/diff2html.min.css'));
+    try {
+      return sheet.cssRules.length;
+    } catch {
+      return -1; // missing, or not loaded as a stylesheet
+    }
+  })).toBeGreaterThan(0);
+});
+
 test('the app menu\'s window actions do what a browser tab can, or say what to use', async ({ page, server }) => {
   const srv = await server();
   await openApp(page, srv);
