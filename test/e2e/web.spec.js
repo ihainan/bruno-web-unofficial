@@ -424,7 +424,7 @@ test.describe('on a phone', () => {
     expect(fits).toBe(true);
   });
 
-  test('an error event with no error object leaves the app alone; a real error\'s crash page shows its message', async ({ page, server }) => {
+  test('an error event with no error object leaves the app alone; a real error\'s crash page shows its message; the server log gets both', async ({ page, server }) => {
     const srv = await server();
     await openApp(page, srv);
     const crashPage = page.getByText('Oops! Something went wrong');
@@ -434,9 +434,16 @@ test.describe('on a phone', () => {
     await page.getByTestId('toggle-sidebar-button').tap();
     await expect(page.locator('html')).toHaveClass(/bw-drawer-open/);
     await expect(crashPage).toHaveCount(0);
+    await expect.poll(() => srv.log()).toContain('client error (ignored)');
+    expect(srv.log()).toContain('Script error.');
+
+    // React passes an error its boundaries catch to console.error.
+    await page.evaluate(() => console.error(new Error('caught by a boundary')));
+    await expect.poll(() => srv.log()).toMatch(/client console\.error at .*: caught by a boundary/);
 
     await page.evaluate(() => setTimeout(() => { throw new Error('a real failure'); }));
     await expect(crashPage).toBeVisible();
+    await expect.poll(() => srv.log()).toMatch(/client error at .*: a real failure/);
     const message = page.getByText('a real failure', { exact: true });
     await message.scrollIntoViewIfNeeded();
     const box = await message.boundingBox();

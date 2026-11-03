@@ -38,7 +38,7 @@ jobs:
           path: upstream
           key: upstream-${{ hashFiles('UPSTREAM_COMMIT', 'patches/**') }}
       - name: Install Playwright's Chromium
-        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium
+        run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium webkit
       - name: Upgrade gate (without upstream's own e2e suite)
         env:
           GATE_SKIP_UPSTREAM_E2E: '1'

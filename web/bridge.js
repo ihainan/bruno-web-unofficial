@@ -65,7 +65,28 @@
     }
   }
 
-  // ------------------------------------------------------------ stray errors
+  // ------------------------------------------------------------- page errors
+  // A browser keeps its errors to itself, so they are sent to the server log
+  // (server/client-errors.js), each distinct one once per page load.
+  const reportedErrors = new Set();
+  const reportError = (kind, error, { message = '', source = '', ignored = false } = {}) => {
+    const text = String((error && error.message) || message || error || '');
+    const stack = String((error && error.stack) || '');
+    const key = `${kind}\n${text}\n${stack.slice(0, 300)}`;
+    if (reportedErrors.has(key) || reportedErrors.size >= 50) return;
+    reportedErrors.add(key);
+    try {
+      fetch('/bruno-web/api/client-errors', {
+        method: 'POST',
+        keepalive: true,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ kind, message: text, stack, source, ignored, page: location.pathname })
+      }).catch(() => {});
+    } catch (e) {
+      // Reporting is best effort.
+    }
+  };
+
   // Bruno's top-level ErrorBoundary sets window.onerror and swaps the whole app
   // for its crash page on any error event. In a browser some error events carry
   // no Error object: "Script error." from browser extensions and other
@@ -74,10 +95,26 @@
   // working, so they are logged and kept from window.onerror. This listener is
   // added before the renderer assigns window.onerror, so it runs first.
   window.addEventListener('error', (e) => {
-    if (e.error != null) return;
+    const source = e.filename ? `${e.filename}:${e.lineno}:${e.colno}` : '';
+    if (e.error != null) {
+      reportError('error', e.error, { source });
+      return;
+    }
+    reportError('error', null, { message: e.message || '(no message)', source, ignored: true });
     console.warn('[bruno-web] ignored an error event without an error object:', e.message || '(no message)');
     e.stopImmediatePropagation();
   });
+  window.addEventListener('unhandledrejection', (e) => {
+    reportError('unhandled rejection', e.reason instanceof Error ? e.reason : null, { message: String(e.reason) });
+  });
+  // React hands an error that an error boundary caught (the crash page among
+  // them) only to console.error, as the Error itself.
+  const consoleError = console.error;
+  console.error = function (...args) {
+    const error = args.find((a) => a instanceof Error);
+    if (error) reportError('console.error', error);
+    return consoleError.apply(this, args);
+  };
 
   window.isPlaywright = settings.playwright === true;
 

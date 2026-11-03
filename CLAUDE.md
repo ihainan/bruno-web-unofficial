@@ -34,12 +34,17 @@ Each upstream e2e worker starts a ~260 MB server plus a browser, about 1.5 GB in
 | `npm test` | unit tests |
 | `scripts/check-upstream-selectors.js` | every upstream class / test id our CSS and JS select on still exists |
 | `/bruno-web/selfcheck` on a running server | every renderer channel has a handler, no unimplemented Electron API was touched, sandbox and HTTP work |
-| `npx playwright test -c test/e2e/playwright.config.js` | Bruno Web's own flows (dialogs, reconnect, takeover, OAuth2, policies, phones) |
+| `npx playwright test -c test/e2e/playwright.config.js` | Bruno Web's own flows (dialogs, reconnect, takeover, OAuth2, policies, phones); the phone tests also run on WebKit, the engine of every iPhone browser |
 | `scripts/upstream-e2e.sh` + `scripts/compare-upstream-results.js` | upstream's whole suite against `test/upstream-e2e/known-failures.txt` |
 | `scripts/upstream-gate.sh [out]` | all of the above, as the upgrade gate |
 
 A test failure is fixed in Bruno Web, not by weakening the test. Add to `known-failures.txt` only for a real,
 documented difference between a browser and Electron, with the reason on the same line.
+
+WebKit needs system libraries that `npx playwright install --with-deps webkit` installs with root. Without root,
+`apt-get download` the packages Playwright reports missing, unpack them with `dpkg-deb -x`, and copy the `.so` files
+into `<playwright cache>/webkit-<rev>/minibrowser-wpe/sys/lib` (its launcher resets `LD_LIBRARY_PATH`, so setting it
+does not help). A Playwright upgrade brings a new `webkit-<rev>` that needs the same.
 
 ## Where things are
 

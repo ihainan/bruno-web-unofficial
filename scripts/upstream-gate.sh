@@ -115,7 +115,7 @@ else
   step fetch scripts/fetch-upstream.sh "$BRUNO_WEB_UPSTREAM" || { echo "[gate] cannot continue without upstream"; }
 fi
 if ! grep -q $'^fetch\t[1-9]' "$OUT/steps.tsv"; then
-  step deps bash -c 'npm ci --no-audit --no-fund && npx playwright install chromium'
+  step deps bash -c 'npm ci --no-audit --no-fund && npx playwright install chromium webkit'
   step unit npm test
   step selectors node scripts/check-upstream-selectors.js
   step selfcheck selfcheck

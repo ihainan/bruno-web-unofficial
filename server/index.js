@@ -19,6 +19,7 @@ const { Policy } = require('./policy');
 const { Hub } = require('./session');
 const { createFsRouter, Downloads, sweepDownloadDirs } = require('./fs-api');
 const { createSelfcheck } = require('./selfcheck');
+const { ClientErrorLog } = require('./client-errors');
 const pages = require('./pages');
 
 const APP_DIST = path.join(config.upstreamDir, 'packages', 'bruno-app', 'dist');
@@ -136,6 +137,12 @@ const main = async () => {
   app.use('/bruno-web/api', createFsRouter({ policy, downloads }));
   // The page calls this now and then so the login cookie is renewed (see Auth.refreshCookie).
   app.get('/bruno-web/api/session', (req, res) => res.json({ user: req.user }));
+  // Errors the page hits (web/bridge.js); see server/client-errors.js.
+  const clientErrors = new ClientErrorLog();
+  app.post('/bruno-web/api/client-errors', express.json({ limit: '16kb' }), (req, res) => {
+    clientErrors.record(req.body, { user: req.user, userAgent: req.get('user-agent') });
+    res.status(204).end();
+  });
 
   // Completes a pending OAuth2 authorization with the callback address the
   // popup landed on. Upstream still validates `state`.
