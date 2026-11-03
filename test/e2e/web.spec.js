@@ -423,4 +423,25 @@ test.describe('on a phone', () => {
     });
     expect(fits).toBe(true);
   });
+
+  test('an error event with no error object leaves the app alone; a real error\'s crash page shows its message', async ({ page, server }) => {
+    const srv = await server();
+    await openApp(page, srv);
+    const crashPage = page.getByText('Oops! Something went wrong');
+
+    // What Safari reports for a browser extension's error: a message and no Error.
+    await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' })));
+    await page.getByTestId('toggle-sidebar-button').tap();
+    await expect(page.locator('html')).toHaveClass(/bw-drawer-open/);
+    await expect(crashPage).toHaveCount(0);
+
+    await page.evaluate(() => setTimeout(() => { throw new Error('a real failure'); }));
+    await expect(crashPage).toBeVisible();
+    const message = page.getByText('a real failure', { exact: true });
+    await message.scrollIntoViewIfNeeded();
+    const box = await message.boundingBox();
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(390);
+    expect(box.width).toBeGreaterThan(50);
+  });
 });

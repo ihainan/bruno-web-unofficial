@@ -65,6 +65,20 @@
     }
   }
 
+  // ------------------------------------------------------------ stray errors
+  // Bruno's top-level ErrorBoundary sets window.onerror and swaps the whole app
+  // for its crash page on any error event. In a browser some error events carry
+  // no Error object: "Script error." from browser extensions and other
+  // cross-origin scripts (Safari's share sheet sets one off), and
+  // ResizeObserver loop notices. They say nothing about the app, which keeps
+  // working, so they are logged and kept from window.onerror. This listener is
+  // added before the renderer assigns window.onerror, so it runs first.
+  window.addEventListener('error', (e) => {
+    if (e.error != null) return;
+    console.warn('[bruno-web] ignored an error event without an error object:', e.message || '(no message)');
+    e.stopImmediatePropagation();
+  });
+
   window.isPlaywright = settings.playwright === true;
 
   // --------------------------------------------------------------- utilities
