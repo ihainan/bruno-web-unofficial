@@ -36,7 +36,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: upstream
-          key: upstream-${{ hashFiles('UPSTREAM_COMMIT', 'patches/**') }}
+          key: upstream-${{ hashFiles('UPSTREAM_COMMIT', 'patches/**', 'phone/**') }}
       - name: Install Playwright's Chromium
         run: npm ci --no-audit --no-fund && npx playwright install --with-deps chromium webkit
       - name: Upgrade gate (without upstream's own e2e suite)

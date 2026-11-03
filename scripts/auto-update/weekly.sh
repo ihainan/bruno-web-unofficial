@@ -241,7 +241,7 @@ log "agent exit $agent_exit, cost \$${agent_cost:-?}, session ${agent_session:-?
 
 # Nothing outside Bruno Web's own files may change.
 changed=$(git status --porcelain | cut -c4-)
-outside=$(printf '%s\n' "$changed" | grep -v -E '^(server/|web/|test/|scripts/|docs/|README\.md|CLAUDE\.md|Dockerfile|package\.json|package-lock\.json|UPSTREAM_COMMIT|patches/|$)' || true)
+outside=$(printf '%s\n' "$changed" | grep -v -E '^(server/|web/|test/|scripts/|docs/|README\.md|CLAUDE\.md|Dockerfile|package\.json|package-lock\.json|UPSTREAM_COMMIT|patches/|phone/|$)' || true)
 if [ -n "$outside" ]; then
   log "agent changed files outside Bruno Web's own: $outside"
 fi

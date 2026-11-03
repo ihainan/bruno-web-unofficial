@@ -1,0 +1,52 @@
+diff --git a/packages/bruno-app/src/pages/Bruno/index.js b/packages/bruno-app/src/pages/Bruno/index.js
+index c3b90fa..e659c90 100644
+--- a/packages/bruno-app/src/pages/Bruno/index.js
++++ b/packages/bruno-app/src/pages/Bruno/index.js
+@@ -22,6 +22,7 @@ import useWsEventListeners from 'utils/network/ws-event-listeners';
+ import Portal from 'components/Portal';
+ import SaveTransientRequestContainer from 'components/SaveTransientRequest/Container';
+ import SaveTransientRequest from 'components/SaveTransientRequest';
++import BrunoWebPhone, { usePhoneMode, PhoneModeSwitch } from '../../bruno-web-phone';
+ 
+ const TransientRequestModalsRenderer = ({ modals }) => {
+   if (modals.length === 0) {
+@@ -68,6 +69,7 @@ export default function Main() {
+   // Initialize event listeners
+   useGrpcEventListeners();
+   useWsEventListeners();
++  const phone = usePhoneMode();
+ 
+   const className = classnames({
+     'is-dragging': isDragging
+@@ -95,7 +97,7 @@ export default function Main() {
+   return (
+     // <ErrorCapture>
+     <div id="main-container" className="flex flex-col h-screen max-h-screen overflow-hidden">
+-      <AppTitleBar />
++      {!phone.active && <AppTitleBar />}
+       {showRosettaBanner ? (
+         <Portal>
+           <div className="fixed bottom-0 left-0 right-0 z-10 bg-amber-100 border border-amber-400 text-amber-700 px-4 py-3" role="alert">
+@@ -117,6 +119,7 @@ export default function Main() {
+           height: isConsoleOpen ? `calc(100vh - 60px - ${isConsoleOpen ? '300px' : '0px'})` : 'calc(100vh - 60px)'
+         }}
+       >
++        {phone.active ? <BrunoWebPhone phone={phone} /> : (
+         <StyledWrapper className={className} style={{ height: '100%', zIndex: 1 }}>
+           <Sidebar />
+           <section className="flex flex-grow flex-col overflow-hidden">
+@@ -141,10 +144,12 @@ export default function Main() {
+             <AiChatSidebar collection={activeCollection} />
+           )}
+         </StyledWrapper>
++        )}
+       </div>
+ 
+-      <Devtools mainSectionRef={mainSectionRef} />
+-      <StatusBar />
++      {!phone.active && <Devtools mainSectionRef={mainSectionRef} />}
++      {!phone.active && <StatusBar />}
++      {phone.eligible && !phone.active && <PhoneModeSwitch phone={phone} />}
+       <TransientRequestModalsRenderer modals={saveTransientRequestModals} />
+       <OpenCollection />
+     </div>

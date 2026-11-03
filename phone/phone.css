@@ -1,0 +1,203 @@
+/* Colours come from Bruno's theme as --bw-* variables (set in index.js). */
+.bw-phone {
+  position: fixed;
+  inset: 0;
+  height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--bw-bg);
+  color: var(--bw-text);
+  z-index: 5;
+  font-size: 16px;
+}
+.bw-phone-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: env(safe-area-inset-top) 8px 0 4px;
+  border-bottom: 1px solid var(--bw-border);
+}
+.bw-phone-title {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-left: 8px;
+}
+.bw-phone-back {
+  width: 44px;
+  height: 44px;
+  font-size: 28px;
+  line-height: 1;
+}
+.bw-phone-action {
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 8px;
+  background: var(--bw-brand);
+  color: var(--bw-on-brand);
+  font-size: 15px;
+}
+.bw-phone-action.subtle {
+  background: transparent;
+  color: inherit;
+  border: 1px solid var(--bw-border);
+}
+.bw-phone-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.bw-phone-scroll[hidden] {
+  display: none;
+}
+/* Upstream's request and response panes, given the screen below the header. */
+.bw-phone-pane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  padding: 4px 12px env(safe-area-inset-bottom);
+}
+/* Upstream puts the pane's tabs and its status and actions on one line, which
+   squeezes the tabs to a few letters at phone width: let the line wrap. */
+.bw-phone-pane .tabs {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  column-gap: 12px;
+}
+.bw-phone-pane .tabs > :first-child {
+  flex: 1 0 100%;
+}
+.bw-phone-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 48px;
+  padding: 0 16px;
+  text-align: left;
+  border-bottom: 1px solid var(--bw-border);
+}
+.bw-phone-row .bw-name {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.bw-phone-row .bw-trail {
+  display: block;
+  font-size: 13px;
+  color: var(--bw-muted);
+}
+.bw-phone-row.bw-request {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+.bw-phone-row.bw-collection {
+  font-weight: 600;
+}
+.bw-phone-row.bw-add {
+  color: var(--bw-brand);
+}
+.bw-phone-row .bw-chevron {
+  width: 14px;
+  color: var(--bw-muted);
+}
+.bw-phone-row .bw-draft {
+  color: var(--bw-draft);
+}
+.bw-phone .bw-method {
+  font-size: 12px;
+  font-weight: 700;
+  min-width: 44px;
+}
+.bw-phone .bw-method.bw-get { color: var(--bw-get); }
+.bw-phone .bw-method.bw-post { color: var(--bw-post); }
+.bw-phone .bw-method.bw-put { color: var(--bw-put); }
+.bw-phone .bw-method.bw-patch { color: var(--bw-patch); }
+.bw-phone .bw-method.bw-delete { color: var(--bw-delete); }
+.bw-phone .bw-method.bw-options { color: var(--bw-options); }
+.bw-phone .bw-method.bw-head { color: var(--bw-head); }
+.bw-phone-search {
+  padding: 12px 16px 8px;
+}
+.bw-phone input[type="search"],
+.bw-phone-url textarea,
+.bw-phone-url select {
+  font-size: 16px;
+  border: 1px solid var(--bw-border);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+}
+.bw-phone input[type="search"] {
+  width: 100%;
+  min-height: 44px;
+  padding: 0 12px;
+}
+.bw-phone-env {
+  padding: 12px 16px 0;
+}
+.bw-phone-url {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 12px 16px;
+}
+.bw-phone-url select.bw-method {
+  flex: none;
+  -webkit-appearance: none;
+  appearance: none;
+  min-height: 44px;
+  padding: 0 24px 0 10px;
+  font-size: 14px;
+  background: transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23888'/%3E%3C/svg%3E") no-repeat right 8px center;
+}
+.bw-phone-url textarea {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, Menlo, monospace;
+  padding: 8px;
+  resize: vertical;
+}
+.bw-phone-send {
+  display: block;
+  margin: 0 16px 12px;
+  width: calc(100% - 32px);
+  min-height: 48px;
+  border-radius: 10px;
+  background: var(--bw-brand);
+  color: var(--bw-on-brand);
+  font-size: 17px;
+  font-weight: 600;
+}
+.bw-phone-send:disabled {
+  opacity: 0.6;
+}
+.bw-phone-empty {
+  padding: 16px;
+  color: var(--bw-muted);
+}
+.bw-phone-link {
+  margin-left: 8px;
+  min-height: 44px;
+  color: var(--bw-brand);
+  text-decoration: underline;
+}
+.bw-phone-switch {
+  position: fixed;
+  right: 12px;
+  bottom: 44px;
+  z-index: 50;
+  min-height: 40px;
+  padding: 0 14px;
+  border-radius: 20px;
+  background: var(--bw-brand);
+  color: var(--bw-on-brand);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}

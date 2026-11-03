@@ -258,7 +258,7 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 
 ## 5. 前端设计
 
-- **不改上游前端源码**。服务端在返回 `index.html` 时插入（必须在应用包之前、同步执行）：
+- 上游前端源码只通过 `patches/` 改一处：`pages/Bruno/index.js` 在手机上渲染手机模式（见下）。服务端在返回 `index.html` 时插入（必须在应用包之前、同步执行）：
   `<script src="/bruno-web/bridge.js">` 与 `<link href="/bruno-web/bridge.css">`，并内联启动配置（上传路径前缀、实例名、功能开关）。
 - `window.ipcRenderer`：`invoke / send / on（返回取消函数）/ removeAllListeners / getFilePath / openExternal`，与 preload 同签名；
   `on` 的处理函数只收到参数（上游 preload 也去掉了 `event`）。
@@ -266,6 +266,7 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 - 文件对话框、OAuth 面板、下载提示用 Shadow DOM 渲染，配色读取 Bruno 当前主题（页面根节点 class），不干扰上游样式。
 - CSS 隐藏 Windows/Linux 标题栏上的最小化/最大化/关闭按钮（`AppTitleBar` 在这两个平台会画它们）。
 - `window.isPlaywright` 置 false。
+- **手机模式**：手机（触屏，且宽不超过 760 或横屏时高不超过 500）上显示 `phone/index.js`，一个用上游自己的 Redux store、动作和组件拼出的请求管理器：集合列表（可搜索）→ 请求（环境、方法、地址、发送）→ 响应整屏显示；参数、请求头、请求体等直接用上游的编辑面板；保存、新建请求用上游的动作和弹窗。当前请求就是上游的活动标签，所以随时可以切到完整界面再切回来，草稿和响应都在。`fetch-upstream.sh` 构建前把 `phone/` 复制到上游源码的 `src/bruno-web-phone`，`patches/0001-phone-mode.patch`（11 行）在 `pages/Bruno/index.js` 里接上。桌面上不出现，上游自己的端到端测试（桌面视口）不受影响。完整界面在触屏上仍由 `web/mobile.css`、`web/mobile.js` 适配。
 
 ## 6. 与桌面版的差异（给用户看的）
 
@@ -281,7 +282,7 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 
 ## 7. 上游维护
 
-- 固定基线 `UPSTREAM_COMMIT`；目标是**零补丁**。若确需改上游，补丁放 `patches/`，构建时 `git apply`，并在本节列出被改的文件（当前：无）。
+- 固定基线 `UPSTREAM_COMMIT`。上游只通过 `patches/` 修改，构建时 `git apply`；补丁只做接入点（功能代码放本仓库）、只碰上游很少改的文件、只在手机模式生效。当前被改的文件：`packages/bruno-app/src/pages/Bruno/index.js`（手机模式入口，近 90 天上游只改过 1 次）。补丁打不上时构建直接失败，修法见仓库 `CLAUDE.md`。升级关卡的对照构建（旧版本）不打补丁。
 - 升级步骤：改 `UPSTREAM_COMMIT` → `scripts/fetch-upstream.sh` → 看 selfcheck 的「缺失通道」「未实现 Electron API」两张清单 → 跑端到端测试。
 
 ## 8. 部署

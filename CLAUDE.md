@@ -6,13 +6,37 @@ design and its trade-offs.
 
 ## Ground rules
 
-- **Never modify `upstream/`.** It is a pinned, unmodified checkout of usebruno/bruno (gitignored). Adapt Bruno Web
-  (`server/`, `web/`, `test/`, `scripts/`) instead. If something truly cannot be done without changing upstream,
-  stop and say so; `patches/` exists for that case but is empty on purpose.
+- **Never edit `upstream/` by hand.** It is a pinned checkout of usebruno/bruno (gitignored) that
+  `scripts/fetch-upstream.sh` re-creates: it checks out `UPSTREAM_COMMIT`, applies `patches/*.patch`, copies `phone/`
+  to `packages/bruno-app/src/bruno-web-phone` and builds. Adapt Bruno Web (`server/`, `web/`, `phone/`, `test/`,
+  `scripts/`) instead. Upstream changes go only through `patches/`, under the rules in "Patches" below.
 - Upstream is pinned by `UPSTREAM_COMMIT`. After changing it run `scripts/fetch-upstream.sh`, which also regenerates
   `web/channels.json` (commit that file with the bump).
 - Do not commit `data/`, `gate-results/`, test output, or anything from a user's collections.
 - Commit messages in English; no AI attribution lines.
+
+## Phone mode and patches
+
+On a phone (coarse pointer, and 760 px wide or 500 px tall at most) the renderer shows phone mode, `phone/index.js`:
+a request manager built from upstream's own Redux store, actions and components (collections → request → send →
+response, editing with upstream's request pane). `patches/0001-phone-mode.patch` renders it from
+`pages/Bruno/index.js`; anywhere else the app is upstream's. Phone mode has a button to the full interface, where
+`web/mobile.css` and `web/mobile.js` adapt upstream's layout to touch screens.
+
+Patches:
+
+- A patch only hooks Bruno Web code in (the feature lives in `phone/` or `web/`), touches few lines (aim: under 30
+  per patch), and only files upstream rarely changes (`pages/Bruno/index.js` changed once in 90 days; the sidebar
+  50 times: never patch that kind of file).
+- A patch changes nothing outside phone mode, so upstream's own e2e suite (desktop viewport) still tests upstream's
+  behaviour, and the gate builds its baseline without patches (`BRUNO_WEB_PLAIN=1`).
+- When a patch no longer applies, `fetch-upstream.sh` fails and leaves `upstream/` checked out at the new commit,
+  without that patch and unbuilt. Fix it there: `git -C upstream apply --3way ../patches/<file>` (or `--reject`
+  and edit), check the result keeps the rules above, `git -C upstream diff -- <patched files> > patches/<file>`,
+  then run `scripts/fetch-upstream.sh` again.
+- `phone/` imports upstream internals (`providers/ReduxStore/...`, `components/...`). A moved module fails the build,
+  but a renamed action argument, prop or store field does not; the phone tests in `test/e2e/web.spec.js` ("on a
+  phone", run on Chromium and WebKit) are what catches that, so keep them covering every action phone mode uses.
 
 ## Running tests safely (this has crashed a 31 GB machine before)
 
@@ -51,6 +75,7 @@ does not help). A Playwright upgrade brings a new `webkit-<rev>` that needs the 
 - `server/electron-shim/` the stand-in `electron` module; unimplemented APIs are recorded and reported by selfcheck.
 - `server/session.js`, `web/bridge.js`, `web/codec.js` the IPC transport (WebSocket, reconnect, takeover).
 - `server/fs-api.js`, `web/dialogs.js` server-side file dialogs, uploads, downloads.
-- `web/mobile.css`, `web/mobile.js` touch-screen layout; they select on upstream class names.
+- `phone/` phone mode (see above); `patches/` its hook into upstream.
+- `web/mobile.css`, `web/mobile.js` upstream's full interface on touch screens; they select on upstream class names.
 - `test/upstream-e2e/` the adapter that runs upstream's Playwright suite against Bruno Web.
 - `scripts/auto-update/` the weekly upstream upgrade job.

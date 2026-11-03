@@ -42,6 +42,8 @@ test('open a collection through the server file dialog, send a request, see the 
   await openRequest(page, 'demo', 'echo-get');
   await send(page);
   await expect(page.locator('.response-pane')).toContainText('/hello?x=1');
+  // A desktop browser has no phone mode, nor the button to it.
+  await expect(page.locator('[data-testid^="bw-phone"]')).toHaveCount(0);
 });
 
 test('a request file changed on disk shows up in the page, also after a reload', async ({ page, server, echo }) => {
@@ -335,10 +337,167 @@ test('the app menu\'s window actions do what a browser tab can, or say what to u
 test.describe('on a phone', () => {
   test.use({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
 
-  test('the sidebar is a drawer, request and response stack, nothing scrolls sideways', async ({ page, server, echo }) => {
+  // Phone mode (phone/index.js) lists the workspace's collections. Put one
+  // there the way opening it once in the full interface would.
+  const addToWorkspace = (srv, name) => {
+    const file = path.join(srv.dataDir, 'userData', 'default-workspace', 'workspace.yml');
+    const entry = `  - name: "${name}"\n    path: "../../workspace/${name}"\n`;
+    if (fs.existsSync(file)) {
+      fs.writeFileSync(file, fs.readFileSync(file, 'utf8').replace(/^collections:.*\n/m, `collections:\n${entry}`));
+    } else {
+      fs.mkdirSync(path.dirname(file), { recursive: true });
+      fs.writeFileSync(file, `opencollection: 1.0.0\ninfo:\n  name: "My Workspace"\n  type: workspace\n\ncollections:\n${entry}\nspecs:\n\ndocs: ''\n`);
+    }
+  };
+  const phoneCollection = (page, name) => page.getByTestId('bw-phone-collection').filter({ hasText: name });
+  const phoneRequest = (page, name) => page.getByTestId('bw-phone-request').filter({ hasText: name });
+  const fullInterface = async (page) => {
+    await page.getByTestId('bw-phone-full').tap();
+    await expect(page.getByTestId('bw-phone')).toHaveCount(0);
+  };
+
+  test('phone mode: change a request\'s method and URL, send the unsaved draft, save it, find it in the full interface', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'echo-get', url: `${echo.url}/phone?a=1` }]);
+    fs.mkdirSync(path.join(dir, 'nested'));
+    writeRequest(path.join(dir, 'nested'), { name: 'deep-one', url: `${echo.url}/deep` });
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+
+    // Collections and folders open in place; a collection loads when first opened.
+    await phoneCollection(page, 'phone').tap();
+    await page.locator('.bw-phone-row.bw-folder').filter({ hasText: 'nested' }).tap();
+    await expect(phoneRequest(page, 'deep-one')).toBeVisible();
+    await phoneRequest(page, 'echo-get').tap();
+    await expect(page.locator('.bw-phone-title')).toHaveText('echo-get');
+
+    await page.getByTestId('bw-phone-method').selectOption('POST');
+    await page.getByTestId('bw-phone-url').fill(`${echo.url}/phone?a=2`);
+    await expect(page.getByTestId('bw-phone-save')).toBeVisible();
+
+    // What is sent is the draft on the screen, not the saved file.
+    await page.getByTestId('bw-phone-send').tap();
+    const response = page.getByTestId('bw-phone-response');
+    await expect(response.getByTestId('response-status-code')).toContainText('200');
+    await expect(response).toContainText('"method": "POST"');
+    await expect(response).toContainText('/phone?a=2');
+    // The response gets the whole screen below the header.
+    expect((await response.boundingBox()).height).toBeGreaterThan(600);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
+
+    await page.getByTestId('bw-phone-save').tap();
+    await expect(page.getByTestId('bw-phone-save')).toHaveCount(0);
+    const saved = fs.readFileSync(path.join(dir, 'echo-get.yml'), 'utf8');
+    expect(saved).toContain('method: POST');
+    expect(saved).toContain('/phone?a=2');
+
+    // The full interface is on the same request, with its response; and back.
+    await fullInterface(page);
+    await expect(page.locator('.request-tab').filter({ hasText: 'echo-get' })).toBeVisible();
+    await expect(page.getByTestId('response-status-code')).toContainText('200');
+    await page.getByTestId('bw-phone-switch').tap();
+    await expect(page.locator('.bw-phone-title')).toHaveText('echo-get');
+    await expect(page.getByTestId('bw-phone-url')).toHaveValue(`${echo.url}/phone?a=2`);
+  });
+
+  test('phone mode: search finds requests inside folders; a new request opens ready to send', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'echo-get', url: `${echo.url}/phone` }]);
+    fs.mkdirSync(path.join(dir, 'nested'));
+    writeRequest(path.join(dir, 'nested'), { name: 'deep-one', url: `${echo.url}/deep` });
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+    await phoneCollection(page, 'phone').tap();
+    await expect(phoneRequest(page, 'echo-get')).toBeVisible();
+
+    // By name, and by address.
+    await page.getByTestId('bw-phone-search').fill('DEEP-');
+    await expect(phoneRequest(page, 'deep-one')).toContainText('phone / nested');
+    await expect(phoneRequest(page, 'echo-get')).toHaveCount(0);
+    await page.getByTestId('bw-phone-search').fill('/deep');
+    await phoneRequest(page, 'deep-one').tap();
+    await expect(page.locator('.bw-phone-title')).toHaveText('deep-one');
+    // Back finds the list as it was left.
+    await page.getByTestId('bw-phone-back').tap();
+    await expect(page.getByTestId('bw-phone-search')).toHaveValue('/deep');
+
+    await page.getByTestId('bw-phone-search').fill('');
+    await page.getByTestId('bw-phone-new-request').tap();
+    const dialog = page.locator('.bruno-modal');
+    await dialog.getByTestId('request-name').fill('made-on-a-phone');
+    await dialog.getByRole('button', { name: 'Create', exact: true }).tap();
+    await expect(page.locator('.bw-phone-title')).toHaveText('made-on-a-phone');
+    await expect.poll(() => fs.existsSync(path.join(dir, 'made-on-a-phone.yml'))).toBe(true);
+    await page.getByTestId('bw-phone-url').fill(`${echo.url}/new`);
+    await page.getByTestId('bw-phone-send').tap();
+    await expect(page.getByTestId('bw-phone-response')).toContainText('/new');
+  });
+
+  test('phone mode: a variable prompt can be cancelled, a failed request says so, leaving with unsaved changes asks first', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'ask', url: `${echo.url}/item/{{?Item id}}` }]);
+    addToWorkspace(srv, 'phone');
+    const asked = [];
+    page.on('dialog', (d) => {
+      asked.push(d.type());
+      d.dismiss();
+    });
+    await openApp(page, srv);
+    await phoneCollection(page, 'phone').tap();
+    await phoneRequest(page, 'ask').tap();
+
+    // Cancelling the prompt sends nothing and stays on the request.
+    await page.getByTestId('bw-phone-send').tap();
+    const prompt = page.getByTestId('prompt-variables-modal-content');
+    await expect(prompt).toBeVisible();
+    await page.locator('.bruno-modal').getByRole('button', { name: 'Cancel', exact: true }).tap();
+    await expect(prompt).toBeHidden();
+    await expect(page.getByTestId('bw-phone-url')).toBeVisible();
+    await expect(page.getByTestId('bw-phone-send')).toBeEnabled();
+
+    await page.getByTestId('bw-phone-send').tap();
+    await page.getByTestId('prompt-variable-input-0').fill('42');
+    await page.locator('.bruno-modal').getByRole('button', { name: 'Continue', exact: true }).tap();
+    await expect(page.getByTestId('bw-phone-response')).toContainText('/item/42');
+
+    // Nothing unsaved yet: leaving does not ask.
+    await page.reload();
+    await page.locator('[data-app-state="loaded"]').waitFor();
+    expect(asked).toEqual([]);
+
+    // Nothing listens on port 9: the error shows instead of a spinner.
+    await phoneCollection(page, 'phone').tap();
+    await phoneRequest(page, 'ask').tap();
+    await page.getByTestId('bw-phone-url').fill('http://127.0.0.1:9/nothing');
+    await page.getByTestId('bw-phone-send').tap();
+    const response = page.getByTestId('bw-phone-response');
+    await expect(response).toContainText(/ECONNREFUSED|connect/i);
+    await expect(response.getByText(/Sending/i)).toHaveCount(0);
+
+    await page.close({ runBeforeUnload: true });
+    await expect.poll(() => asked).toEqual(['beforeunload']);
+  });
+
+  test('turned sideways a phone stays in phone mode; a tablet gets the full interface', async ({ page, server }) => {
+    const srv = await server();
+    await openApp(page, srv);
+    await expect(page.getByTestId('bw-phone')).toBeVisible();
+    await page.setViewportSize({ width: 844, height: 390 });
+    await expect(page.getByTestId('bw-phone')).toBeVisible();
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await expect(page.getByTestId('bw-phone')).toHaveCount(0);
+    await expect(page.getByTestId('bw-phone-switch')).toHaveCount(0);
+    await expect(page.getByTestId('toggle-sidebar-button')).toBeVisible();
+  });
+
+  test('full interface: the sidebar is a drawer, request and response stack, nothing scrolls sideways', async ({ page, server, echo }) => {
     const srv = await server();
     writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: `${echo.url}/phone` }]);
     await openApp(page, srv);
+    await fullInterface(page);
     const toggle = page.getByTestId('toggle-sidebar-button');
     const collapsedLabel = await toggle.getAttribute('aria-label');
 
@@ -368,10 +527,11 @@ test.describe('on a phone', () => {
     // The drawer did not touch Bruno's own collapsed setting, which other devices share.
     expect(await toggle.getAttribute('aria-label')).toBe(collapsedLabel);
   });
-  test('row menus need no hover, dialogs fit the screen, tables scroll instead of squeezing', async ({ page, server, echo }) => {
+  test('full interface: row menus need no hover, dialogs fit the screen, tables scroll instead of squeezing', async ({ page, server, echo }) => {
     const srv = await server();
     writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: `${echo.url}/phone?a=1` }]);
     await openApp(page, srv);
+    await fullInterface(page);
     await page.getByTestId('toggle-sidebar-button').tap();
     await page.getByTestId('collections-header-add-menu').tap();
     await page.locator('.tippy-box .dropdown-item').filter({ hasText: /open collection/i }).first().tap();
@@ -404,10 +564,11 @@ test.describe('on a phone', () => {
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
   });
 
-  test('Share Collection\'s format cards fit the dialog', async ({ page, server }) => {
+  test('full interface: Share Collection\'s format cards fit the dialog', async ({ page, server }) => {
     const srv = await server();
     writeCollection(path.join(srv.workspace, 'phone'), 'phone', [{ name: 'echo-get', url: 'http://127.0.0.1:9/x' }]);
     await openApp(page, srv);
+    await fullInterface(page);
     await page.getByTestId('toggle-sidebar-button').tap();
     await openCollectionViaDialog(page, 'phone');
     await collectionRow(page, 'phone').tap();
@@ -431,6 +592,8 @@ test.describe('on a phone', () => {
 
     // What Safari reports for a browser extension's error: a message and no Error.
     await page.evaluate(() => window.dispatchEvent(new ErrorEvent('error', { message: 'Script error.' })));
+    await expect(page.getByTestId('bw-phone')).toBeVisible();
+    await fullInterface(page);
     await page.getByTestId('toggle-sidebar-button').tap();
     await expect(page.locator('html')).toHaveClass(/bw-drawer-open/);
     await expect(crashPage).toHaveCount(0);

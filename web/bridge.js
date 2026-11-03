@@ -634,9 +634,10 @@
   // reloading tab gets the browser's own confirmation instead. A tab with
   // unsaved changes has `has-changes` on its close button (the draft dot
   // itself, .has-changes-icon, is rendered on every tab and only shown by CSS).
+  // Phone mode has no tab bar and marks <html> instead (phone/index.js).
   window.addEventListener('beforeunload', (event) => {
     if (stopped) return;
-    if (!document.querySelector('.close-gradient.has-changes')) return;
+    if (!document.querySelector('.close-gradient.has-changes, html.bw-has-draft')) return;
     event.preventDefault();
     event.returnValue = '';
   });

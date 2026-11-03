@@ -7,6 +7,7 @@ WORKDIR /app
 COPY package.json package-lock.json UPSTREAM_COMMIT ./
 COPY scripts ./scripts
 COPY patches ./patches
+COPY phone ./phone
 RUN npm ci --omit=dev --no-audit --no-fund
 RUN scripts/fetch-upstream.sh /app/upstream \
   && rm -rf /app/upstream/.git /app/upstream/tests /app/upstream/packages/bruno-app/node_modules/.cache

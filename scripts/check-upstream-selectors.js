@@ -7,7 +7,8 @@
  *
  *   scripts/check-upstream-selectors.js       exit 1 and list what is missing
  *
- * Names we create ourselves start with `bw-` or `bruno-` and are skipped.
+ * Names we create ourselves start with `bw-` or `bruno-web` and are skipped.
+ * (Upstream has `bruno-` names of its own, such as bruno-modal.)
  */
 const fs = require('node:fs');
 const path = require('node:path');
@@ -20,9 +21,13 @@ const appSrc = path.join(upstream, 'packages', 'bruno-app', 'src');
 const SOURCES = [
   { file: 'web/mobile.css', css: true },
   { file: 'web/mobile.js' },
-  { file: 'web/bridge.js' }
+  { file: 'web/bridge.js' },
+  { file: 'phone/phone.css', css: true },
+  { file: 'phone/index.js' }
 ];
-const OWN = /^(bw-|bruno-)/;
+const OWN = /^(bw-|bruno-web)/;
+// fetch-upstream.sh copies phone/ here: our own code, not upstream's.
+const INJECTED = 'bruno-web-phone';
 // Generic names that are not a contract with upstream markup.
 const IGNORE = new Set(['tippy-box', 'tippy-content', 'webview', 'row', 'toasts']);
 
@@ -71,7 +76,7 @@ const walk = (dir, out) => {
   for (const d of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, d.name);
     if (d.isDirectory()) {
-      if (d.name !== 'node_modules') walk(full, out);
+      if (d.name !== 'node_modules' && d.name !== INJECTED) walk(full, out);
     } else if (/\.(js|jsx|ts|tsx|css|scss)$/.test(d.name) && !/\.(spec|test)\./.test(d.name)) {
       out.push(fs.readFileSync(full, 'utf8'));
     }

@@ -98,7 +98,8 @@ upstream_e2e() {
   base=${GATE_BASELINE_DIR:-$REPO/upstream-baseline}
   mapfile -t files < "$OUT/upstream-failed-files.txt"
   echo "running ${#files[@]} file(s) against the baseline upstream $GATE_BASELINE_COMMIT"
-  if ! scripts/fetch-upstream.sh "$base" "$GATE_BASELINE_COMMIT" > "$OUT/upstream-baseline-fetch.log" 2>&1; then
+  # Built without our patches: they are written for the new commit.
+  if ! BRUNO_WEB_PLAIN=1 scripts/fetch-upstream.sh "$base" "$GATE_BASELINE_COMMIT" > "$OUT/upstream-baseline-fetch.log" 2>&1; then
     echo "could not build the baseline, see $OUT/upstream-baseline-fetch.log"
     cat "$OUT/upstream-second-pass.txt"
     return 1

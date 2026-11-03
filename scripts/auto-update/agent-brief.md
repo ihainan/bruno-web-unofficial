@@ -18,11 +18,17 @@ Make Bruno Web work with the new upstream so that the gate passes, by changing B
 
 Read `CLAUDE.md` first; its rules apply. In particular:
 
-- Do not modify `upstream/`. It is re-fetched and rebuilt before the gate runs again, so changes there are lost.
-  If a fix truly needs an upstream change, stop and explain.
+- Do not edit `upstream/` by hand. It is re-fetched and rebuilt before the gate runs again, so changes there are lost.
+  Upstream changes go only through `patches/`, following "Phone mode and patches" in `CLAUDE.md`; do not add a new
+  patch or widen one to fix a failure, only carry the existing ones over. If a fix needs more than that, stop and
+  explain.
+- If the `fetch` step failed because a patch does not apply, nothing else ran. Regenerate the patch for the new
+  upstream as `CLAUDE.md` describes, run `scripts/fetch-upstream.sh` until it builds, then continue with the checks
+  below.
 - Find the cause in the upstream change (`git -C upstream log`, the compare link, `git -C upstream show`), then
-  adapt `server/`, `web/`, `test/` or `scripts/`. Typical causes: a new IPC channel or Electron API the shim lacks,
-  a renamed class or test id our CSS/JS selects on, changed behaviour our own tests assumed.
+  adapt `server/`, `web/`, `phone/`, `test/` or `scripts/`. Typical causes: a new IPC channel or Electron API the shim
+  lacks, a renamed class or test id our CSS/JS selects on, an upstream action, component prop or store field phone
+  mode (`phone/index.js`) uses that changed, changed behaviour our own tests assumed.
 - Do not weaken, skip or delete tests to get green. Add to `test/upstream-e2e/known-failures.txt` only for a real
   difference between a browser and Electron, with the reason on the same line, and say so in your report.
 - Do not run upstream's whole e2e suite: the job runs the full gate again after you finish. You may run
