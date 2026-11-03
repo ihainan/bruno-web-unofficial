@@ -22,8 +22,9 @@ const SOURCES = [
   { file: 'web/mobile.css', css: true },
   { file: 'web/mobile.js' },
   { file: 'web/bridge.js' },
-  { file: 'phone/phone.css', css: true },
-  { file: 'phone/index.js' }
+  // phone/index.js uses upstream's components and store, not its markup; the
+  // phone tests cover those.
+  { file: 'phone/phone.css', css: true }
 ];
 const OWN = /^(bw-|bruno-web)/;
 // fetch-upstream.sh copies phone/ here: our own code, not upstream's.

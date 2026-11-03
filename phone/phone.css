@@ -41,7 +41,7 @@
   color: var(--bw-on-brand);
   font-size: 15px;
 }
-.bw-phone-action.subtle {
+.bw-phone-action.bw-subtle {
   background: transparent;
   color: inherit;
   border: 1px solid var(--bw-border);

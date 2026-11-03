@@ -32,8 +32,9 @@ Patches:
   behaviour, and the gate builds its baseline without patches (`BRUNO_WEB_PLAIN=1`).
 - When a patch no longer applies, `fetch-upstream.sh` fails and leaves `upstream/` checked out at the new commit,
   without that patch and unbuilt. Fix it there: `git -C upstream apply --3way ../patches/<file>` (or `--reject`
-  and edit), check the result keeps the rules above, `git -C upstream diff -- <patched files> > patches/<file>`,
-  then run `scripts/fetch-upstream.sh` again.
+  and edit), check the result keeps the rules above, then
+  `git -C upstream diff HEAD -- <patched files> > patches/<file>` (with `HEAD`: `--3way` stages what it applies)
+  and run `scripts/fetch-upstream.sh` again.
 - `phone/` imports upstream internals (`providers/ReduxStore/...`, `components/...`). A moved module fails the build,
   but a renamed action argument, prop or store field does not; the phone tests in `test/e2e/web.spec.js` ("on a
   phone", run on Chromium and WebKit) are what catches that, so keep them covering every action phone mode uses.

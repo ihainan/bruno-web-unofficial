@@ -17,11 +17,20 @@ import styled from 'styled-components';
 import { addTab, makeTabPermanent } from 'providers/ReduxStore/slices/tabs';
 import { requestUrlChanged, updateRequestMethod } from 'providers/ReduxStore/slices/collections';
 import { sendRequest, saveRequest, mountCollection } from 'providers/ReduxStore/slices/collections/actions';
-import { findItemInCollection, getWorkspaceCollections, isItemAFolder, isItemARequest } from 'utils/collections';
+import {
+  findItemInCollection,
+  getGlobalEnvironmentVariables,
+  getGlobalEnvironmentVariablesMasked,
+  getWorkspaceCollections,
+  isItemAFolder,
+  isItemARequest
+} from 'utils/collections';
 import ResponsePane from 'components/ResponsePane';
 import HttpRequestPane from 'components/RequestPane/HttpRequestPane';
 import EnvironmentSelector from 'components/Environments/EnvironmentSelector';
 import NewRequest from 'components/Sidebar/NewRequest';
+import RequestNotLoaded from 'components/RequestTabPanel/RequestNotLoaded';
+import RequestIsLoading from 'components/RequestTabPanel/RequestIsLoading';
 import './phone.css';
 
 // A phone in either orientation: narrow, or (in landscape) short. Tablets are
@@ -240,6 +249,7 @@ export default function BrunoWebPhone({ phone }) {
   const activeWorkspaceUid = useSelector((state) => state.workspaces.activeWorkspaceUid);
   const tabs = useSelector((state) => state.tabs.tabs);
   const activeTabUid = useSelector((state) => state.tabs.activeTabUid);
+  const { globalEnvironments, activeGlobalEnvironmentUid, globalEnvironmentDraft } = useSelector((state) => state.globalEnvironments);
 
   const activeWorkspace = workspaces.find((w) => w.uid === activeWorkspaceUid);
   const collections = useMemo(
@@ -248,12 +258,23 @@ export default function BrunoWebPhone({ phone }) {
   );
 
   const tab = tabs.find((t) => t.uid === activeTabUid);
-  const collection = tab ? allCollections.find((c) => c.uid === tab.collectionUid) : null;
+  const tabCollection = tab ? allCollections.find((c) => c.uid === tab.collectionUid) : null;
+  // As upstream's RequestTabPanel does, give the panes the selected global
+  // environment (variable highlighting and autocomplete use it).
+  const collection = useMemo(() => tabCollection && {
+    ...tabCollection,
+    globalEnvironmentVariables: getGlobalEnvironmentVariables({ globalEnvironments, activeGlobalEnvironmentUid }),
+    globalEnvSecrets: getGlobalEnvironmentVariablesMasked({ globalEnvironments, activeGlobalEnvironmentUid }),
+    globalEnvironments,
+    activeGlobalEnvironmentUid
+  }, [tabCollection, globalEnvironments, activeGlobalEnvironmentUid]);
   const found = collection && tab ? findItemInCollection(collection, tab.uid) : null;
   const item = found && isItemARequest(found) ? found : null;
 
   const [screen, setScreen] = useState(item ? 'request' : 'list');
-  const current = item ? screen : 'list';
+  // A request file that failed to parse, or is still loading, has no request yet.
+  const unreadable = item && (item.partial || item.loading);
+  const current = !item ? 'list' : unreadable && screen !== 'list' ? 'request' : screen;
 
   // A request opened elsewhere (a new request, once its file is loaded) becomes
   // the current one.
@@ -271,8 +292,9 @@ export default function BrunoWebPhone({ phone }) {
   }, [tab, item, dispatch]);
 
   // Closing the browser tab asks first while anything is unsaved (web/bridge.js
-  // reads this; the desktop layout's tab bar is not rendered here).
-  const unsaved = allCollections.some((c) => hasDraft(c.items));
+  // reads this; the desktop layout's tab bar, which marks the same drafts, is
+  // not rendered here).
+  const unsaved = !!globalEnvironmentDraft || allCollections.some((c) => c.draft || c.environmentsDraft || hasDraft(c.items));
   useEffect(() => {
     document.documentElement.classList.toggle('bw-has-draft', unsaved);
     return () => document.documentElement.classList.remove('bw-has-draft');
@@ -283,7 +305,8 @@ export default function BrunoWebPhone({ phone }) {
     setScreen('request');
   };
 
-  const isHttp = item && item.type === 'http-request';
+  const isHttp = item && !unreadable && item.type === 'http-request';
+  const inFlight = item && ['queued', 'sending'].includes(item.requestState);
   const request = item ? (item.draft || item).request : null;
   // Show the response screen once the request is under way: sendRequest first
   // asks for any {{?prompt}} variables (cancelling resolves it with nothing
@@ -312,14 +335,20 @@ export default function BrunoWebPhone({ phone }) {
         {current !== 'list' && item.draft ? (
           <button type="button" className="bw-phone-action" onClick={() => dispatch(saveRequest(item.uid, collection.uid))} data-testid="bw-phone-save">保存</button>
         ) : null}
-        <button type="button" className="bw-phone-action subtle" onClick={phone.showFull} data-testid="bw-phone-full">完整界面</button>
+        <button type="button" className="bw-phone-action bw-subtle" onClick={phone.showFull} data-testid="bw-phone-full">完整界面</button>
       </header>
 
       {/* Kept while a request is open, so going back finds the list as it was
           (open folders, search, scroll position). */}
       <ListScreen collections={collections} onOpen={open} hidden={current !== 'list'} />
 
-      {current === 'request' && !isHttp ? (
+      {current === 'request' && unreadable ? (
+        <div className="bw-phone-scroll">
+          {item.partial ? <RequestNotLoaded item={item} collection={collection} /> : <RequestIsLoading item={item} />}
+        </div>
+      ) : null}
+
+      {current === 'request' && !unreadable && !isHttp ? (
         <div className="bw-phone-scroll">
           <p className="bw-phone-empty">
             {methodOf(item)} 请求在手机视图里还不能编辑和发送，请在完整界面里使用。
@@ -352,7 +381,7 @@ export default function BrunoWebPhone({ phone }) {
               onChange={(e) => dispatch(requestUrlChanged({ itemUid: item.uid, collectionUid: collection.uid, url: e.target.value }))}
             />
           </div>
-          <button type="button" className="bw-phone-send" onClick={send} disabled={!!waiting} data-testid="bw-phone-send">发送</button>
+          <button type="button" className="bw-phone-send" onClick={send} disabled={!!waiting || inFlight} data-testid="bw-phone-send">发送</button>
           {item.response || item.requestState ? (
             <button type="button" className="bw-phone-row" onClick={() => setScreen('response')} data-testid="bw-phone-last-response">
               <span className="bw-name">上次响应：{statusText(item)}</span>

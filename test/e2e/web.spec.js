@@ -376,6 +376,19 @@ test.describe('on a phone', () => {
     await page.getByTestId('bw-phone-url').fill(`${echo.url}/phone?a=2`);
     await expect(page.getByTestId('bw-phone-save')).toBeVisible();
 
+    // The unsaved draft survives a trip to the full interface and back.
+    await fullInterface(page);
+    await expect(page.locator('.request-tab').filter({ hasText: 'echo-get' }).locator('.close-gradient.has-changes')).toHaveCount(1);
+    await page.getByTestId('bw-phone-switch').tap();
+    await expect(page.getByTestId('bw-phone-url')).toHaveValue(`${echo.url}/phone?a=2`);
+    await expect(page.getByTestId('bw-phone-method')).toHaveValue('POST');
+
+    // The edit screen is upstream's request pane, with the draft's query.
+    await page.getByTestId('bw-phone-edit').tap();
+    await expect(page.locator('.bw-phone-pane table').first()).toContainText('a');
+    await expect(page.locator('.bw-phone-pane table').first().locator('text=2').first()).toBeVisible();
+    await page.getByTestId('bw-phone-back').tap();
+
     // What is sent is the draft on the screen, not the saved file.
     await page.getByTestId('bw-phone-send').tap();
     const response = page.getByTestId('bw-phone-response');
@@ -423,7 +436,14 @@ test.describe('on a phone', () => {
     await page.getByTestId('bw-phone-back').tap();
     await expect(page.getByTestId('bw-phone-search')).toHaveValue('/deep');
 
+    // A request file that does not parse opens upstream's notice, not the crash page.
     await page.getByTestId('bw-phone-search').fill('');
+    fs.writeFileSync(path.join(dir, 'broken.yml'), 'info:\n  name: broken\n  type: http\n\nhttp:\n  url: [unclosed\n  : : :\n');
+    await phoneRequest(page, 'broken').tap();
+    await expect(page.getByTestId('bw-phone')).toBeVisible();
+    await expect(page.getByText('Oops! Something went wrong')).toHaveCount(0);
+    await page.getByTestId('bw-phone-back').tap();
+
     await page.getByTestId('bw-phone-new-request').tap();
     const dialog = page.locator('.bruno-modal');
     await dialog.getByTestId('request-name').fill('made-on-a-phone');
@@ -462,6 +482,17 @@ test.describe('on a phone', () => {
     await page.getByTestId('prompt-variable-input-0').fill('42');
     await page.locator('.bruno-modal').getByRole('button', { name: 'Continue', exact: true }).tap();
     await expect(page.getByTestId('bw-phone-response')).toContainText('/item/42');
+
+    // While a request is under way it cannot be sent again.
+    await page.getByTestId('bw-phone-back').tap();
+    await page.getByTestId('bw-phone-url').fill(`${echo.url}/slow`);
+    await page.getByTestId('bw-phone-send').tap();
+    await expect(page.getByTestId('bw-phone-response')).toBeVisible();
+    await page.getByTestId('bw-phone-back').tap();
+    await expect(page.getByTestId('bw-phone-send')).toBeDisabled();
+    await expect(page.getByTestId('bw-phone-send')).toBeEnabled({ timeout: 10000 });
+    await page.getByTestId('bw-phone-save').tap();
+    await expect(page.getByTestId('bw-phone-save')).toHaveCount(0);
 
     // Nothing unsaved yet: leaving does not ask.
     await page.reload();
