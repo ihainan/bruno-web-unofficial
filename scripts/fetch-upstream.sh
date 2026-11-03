@@ -16,7 +16,8 @@ channels() { if [ "$COMMIT" = "$PINNED" ]; then BRUNO_WEB_UPSTREAM="$DEST" node 
 # Delete $DEST/.bruno-web-built to force a rebuild.
 STAMP="$DEST/.bruno-web-built"
 PATCHES=$({ compgen -G "$REPO/patches/*.patch" || true; } | sort | xargs -r cat | sha256sum | cut -c1-16)
-WANT="$COMMIT $PATCHES"
+PHONE=$(cd "$REPO" && find phone -type f | sort | xargs -r sha256sum | sha256sum | cut -c1-16)
+WANT="$COMMIT $PATCHES $PHONE"
 if [ -f "$STAMP" ] && [ "$(cat "$STAMP")" = "$WANT" ] && [ -z "$(git -C "$DEST" status --porcelain --untracked-files=no 2>/dev/null)" ]; then
   channels
   echo "upstream $COMMIT already built in $DEST"
@@ -34,6 +35,11 @@ git -C "$DEST" checkout -q --force "$COMMIT"
 if compgen -G "$REPO/patches/*.patch" > /dev/null; then
   for p in "$REPO"/patches/*.patch; do git -C "$DEST" apply "$p"; done
 fi
+# Phone mode (phone/index.js) is built as part of the renderer. Replace the
+# directory wholesale so files deleted or renamed in phone/ do not linger.
+PHONE_DEST="$DEST/packages/bruno-app/src/bruno-web-phone"
+rm -rf "$PHONE_DEST"
+cp -r "$REPO/phone" "$PHONE_DEST"
 
 cd "$DEST"
 # The Electron and Playwright browser binaries are not needed to run in Node.

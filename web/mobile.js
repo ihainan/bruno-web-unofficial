@@ -13,7 +13,7 @@
   const DRAWER = '#main-container > .flex-1 > div > div:has(> div > aside[data-testid="sidebar"])';
   const TOGGLE = '[data-testid="toggle-sidebar-button"]';
   // Popups and dialogs opened from inside the drawer render elsewhere in the page.
-  const OVERLAYS = '.tippy-box, .bruno-modal, [role="dialog"], [role="alertdialog"], bruno-web-ui';
+  const OVERLAYS = '.tippy-box, .bruno-modal, [role="dialog"], [role="alertdialog"], bruno-web-ui, .bw-phone-switch';
 
   let rowMenuOpenedAt = 0;
   const isOpen = () => root.classList.contains('bw-drawer-open');
@@ -24,7 +24,8 @@
   };
 
   document.addEventListener('click', (e) => {
-    if (!mq.matches) return;
+    // Phone mode (phone/index.js) has its own layout and no drawer.
+    if (!mq.matches || root.classList.contains('bw-phone-mode')) return;
     const target = e.target instanceof Element ? e.target : null;
     if (!target) return;
 
