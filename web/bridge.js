@@ -68,9 +68,14 @@
   // ------------------------------------------------------------- page errors
   // A browser keeps its errors to itself, so they are sent to the server log
   // (server/client-errors.js), each distinct one once per page load.
+  // Not failures: calls this server refuses by its settings (the terminal,
+  // npm installs), and calls cut off when the page reloads or another page
+  // takes over. Bruno logs them with console.error on every page load.
+  const EXPECTED_ERROR = /on this Bruno Web server|Bruno Web connection closed/;
   const reportedErrors = new Set();
   const reportError = (kind, error, { message = '', source = '', ignored = false } = {}) => {
     const text = String((error && error.message) || message || error || '');
+    if (EXPECTED_ERROR.test(text)) return;
     const stack = String((error && error.stack) || '');
     const key = `${kind}\n${text}\n${stack.slice(0, 300)}`;
     if (reportedErrors.has(key) || reportedErrors.size >= 50) return;

@@ -437,6 +437,9 @@ test.describe('on a phone', () => {
     await expect.poll(() => srv.log()).toContain('client error (ignored)');
     expect(srv.log()).toContain('Script error.');
 
+    // A call the server refuses by its settings, logged the way Bruno does: expected, not reported.
+    await page.evaluate(() => window.ipcRenderer.invoke('terminal:list-sessions').catch((e) => console.error(e)));
+
     // React passes an error its boundaries catch to console.error.
     await page.evaluate(() => console.error(new Error('caught by a boundary')));
     await expect.poll(() => srv.log()).toMatch(/client console\.error at .*: caught by a boundary/);
@@ -444,6 +447,7 @@ test.describe('on a phone', () => {
     await page.evaluate(() => setTimeout(() => { throw new Error('a real failure'); }));
     await expect(crashPage).toBeVisible();
     await expect.poll(() => srv.log()).toMatch(/client error at .*: a real failure/);
+    expect(srv.log()).not.toContain('on this Bruno Web server');
     const message = page.getByText('a real failure', { exact: true });
     await message.scrollIntoViewIfNeeded();
     const box = await message.boundingBox();
