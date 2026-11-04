@@ -11,33 +11,50 @@
  * Everything imported from upstream here is a contract the phone tests in
  * test/e2e/web.spec.js ("on a phone") check after every upstream upgrade.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+'use no memo'; // React Compiler mis-memoizes optional chains here (env?.variables read as env.variables).
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import styled from 'styled-components';
-import { addTab, makeTabPermanent } from 'providers/ReduxStore/slices/tabs';
-import { requestUrlChanged, updateRequestMethod } from 'providers/ReduxStore/slices/collections';
-import { sendRequest, saveRequest, mountCollection } from 'providers/ReduxStore/slices/collections/actions';
+import toast from 'react-hot-toast';
+import { addTab, makeTabPermanent, updateRequestPaneTab, updateResponsePaneTab } from 'providers/ReduxStore/slices/tabs';
+import { sendRequest, saveRequest, cancelRequest, mountCollection } from 'providers/ReduxStore/slices/collections/actions';
 import {
   findItemInCollection,
+  getAllVariables,
   getGlobalEnvironmentVariables,
   getGlobalEnvironmentVariablesMasked,
   getWorkspaceCollections,
-  isItemAFolder,
   isItemARequest
 } from 'utils/collections';
-import ResponsePane from 'components/ResponsePane';
-import HttpRequestPane from 'components/RequestPane/HttpRequestPane';
-import EnvironmentSelector from 'components/Environments/EnvironmentSelector';
-import NewRequest from 'components/Sidebar/NewRequest';
-import RequestNotLoaded from 'components/RequestTabPanel/RequestNotLoaded';
-import RequestIsLoading from 'components/RequestTabPanel/RequestIsLoading';
+import { getContentType } from 'utils/common';
+import { getDefaultResponseFormat } from 'utils/response';
+import { Themed, ThemedButton } from './theme';
+import { ListScreen, hasDraft, readRecent, rememberRecent } from './list';
+import { RequestScreen } from './request';
+import { ResponseScreen, bodyText } from './response';
+import { RunnerScreen } from './runner';
+import {
+  EnvSheet,
+  VarPeek,
+  PromptSheet,
+  ConfirmSheet,
+  MoveSheet,
+  CodeSheet,
+  RequestMenu,
+  GroupMenu,
+  WorkspaceMenu,
+  ResponseMenu,
+  NewSheet,
+  copyText,
+  curlFor,
+  itemOps,
+  saveAsExample
+} from './sheets';
 import './phone.css';
 
 // A phone in either orientation: narrow, or (in landscape) short. Tablets are
 // neither and keep the full interface.
 const QUERY = '(pointer: coarse) and (max-width: 760px), (pointer: coarse) and (max-height: 500px)';
 const KEY = 'bruno-web-phone-mode';
-const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD', 'TRACE', 'CONNECT'];
 
 const readChoice = () => {
   try {
@@ -65,6 +82,29 @@ export const usePhoneMode = () => {
     setChoice(value);
   };
   const active = eligible && choice !== 'full';
+  // iOS lays the keyboard over the page instead of shrinking it: follow the
+  // visible part, so what is being edited (and the symbol keys) stays above
+  // the keyboard. phone.css reads these.
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!active || !vv) return undefined;
+    const root = document.documentElement;
+    const update = () => {
+      root.style.setProperty('--bw-vv-h', `${vv.height}px`);
+      root.style.setProperty('--bw-vv-top', `${vv.offsetTop}px`);
+      root.classList.toggle('bw-kb-open', window.innerHeight - vv.height > 120);
+    };
+    update();
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update);
+    return () => {
+      vv.removeEventListener('resize', update);
+      vv.removeEventListener('scroll', update);
+      root.style.removeProperty('--bw-vv-h');
+      root.style.removeProperty('--bw-vv-top');
+      root.classList.remove('bw-kb-open');
+    };
+  }, [active]);
   useEffect(() => {
     document.documentElement.classList.toggle('bw-phone-mode', active);
     // The full interface's drawer (web/mobile.js) must not stay open underneath.
@@ -73,173 +113,18 @@ export const usePhoneMode = () => {
   return { eligible, active, showFull: () => choose('full'), showPhone: () => choose('phone') };
 };
 
-// Bruno's theme (light, dark and their variants) as variables for phone.css.
-const themed = (props) => {
-  const t = props.theme;
-  const m = t.request?.methods || {};
-  return `
-    --bw-bg: ${t.bg};
-    --bw-text: ${t.text};
-    --bw-muted: ${t.colors?.text?.muted || t.text};
-    --bw-border: ${t.border?.border2 || 'rgba(128, 128, 128, 0.3)'};
-    --bw-brand: ${t.button2?.color?.primary?.bg || t.brand};
-    --bw-on-brand: ${t.button2?.color?.primary?.text || '#fff'};
-    --bw-draft: ${t.draftColor || t.brand};
-    --bw-get: ${m.get}; --bw-post: ${m.post}; --bw-put: ${m.put}; --bw-patch: ${m.patch};
-    --bw-delete: ${m.delete}; --bw-options: ${m.options}; --bw-head: ${m.head};
-  `;
-};
-const Root = styled.div`${themed}`;
-const SwitchButton = styled.button`${themed}`;
-
 export const PhoneModeSwitch = ({ phone }) => (
-  <SwitchButton type="button" className="bw-phone-switch" data-testid="bw-phone-switch" onClick={phone.showPhone}>
-    手机视图
-  </SwitchButton>
+  <ThemedButton type="button" className="bw-phone-switch" data-testid="bw-phone-switch" onClick={phone.showPhone}>
+    Phone view
+  </ThemedButton>
 );
 
-const bySeq = (a, b) => (a.seq ?? 0) - (b.seq ?? 0) || String(a.name).localeCompare(String(b.name));
-
-const methodOf = (item) => {
-  if (item.type === 'http-request') return (item.draft || item).request?.method || 'GET';
-  return { 'graphql-request': 'GQL', 'grpc-request': 'gRPC', 'ws-request': 'WS' }[item.type] || '?';
-};
-
-const hasDraft = (items) => (items || []).some((i) => i.draft || (isItemAFolder(i) && hasDraft(i.items)));
-
-// Requests in a collection with the folders above them, for search.
-const flatten = (items, trail, out) => {
-  for (const item of [...(items || [])].sort(bySeq)) {
-    if (isItemAFolder(item)) flatten(item.items, [...trail, item.name], out);
-    else if (isItemARequest(item)) out.push({ item, trail });
+const formatOf = (response) => {
+  try {
+    return getDefaultResponseFormat(getContentType(response.headers)).format || 'raw';
+  } catch (e) {
+    return 'raw';
   }
-  return out;
-};
-
-const RequestRow = ({ item, depth = 1, trail, onOpen }) => (
-  <button type="button" className="bw-phone-row bw-request" style={{ paddingLeft: 16 + depth * 16 }} onClick={() => onOpen(item)} data-testid="bw-phone-request">
-    <span className={`bw-method bw-${methodOf(item).toLowerCase()}`}>{methodOf(item)}</span>
-    <span className="bw-name">
-      {item.name}
-      {trail ? <span className="bw-trail">{trail}</span> : null}
-    </span>
-    {item.draft ? <span className="bw-draft" title="未保存">●</span> : null}
-  </button>
-);
-
-const Tree = ({ items, depth, onOpen }) => {
-  const [open, setOpen] = useState({});
-  return [...(items || [])].sort(bySeq).map((item) => {
-    if (isItemAFolder(item)) {
-      const expanded = !!open[item.uid];
-      return (
-        <div key={item.uid}>
-          <button type="button" className="bw-phone-row bw-folder" style={{ paddingLeft: 16 + depth * 16 }} onClick={() => setOpen({ ...open, [item.uid]: !expanded })}>
-            <span className="bw-chevron">{expanded ? '▾' : '▸'}</span>
-            <span className="bw-name">{item.name}</span>
-          </button>
-          {expanded && <Tree items={item.items} depth={depth + 1} onOpen={onOpen} />}
-        </div>
-      );
-    }
-    if (!isItemARequest(item)) return null;
-    return <RequestRow key={item.uid} item={item} depth={depth} onOpen={onOpen} />;
-  });
-};
-
-const ListScreen = ({ collections, onOpen, hidden }) => {
-  const dispatch = useDispatch();
-  const [open, setOpen] = useState({});
-  const [failed, setFailed] = useState({});
-  const [query, setQuery] = useState('');
-  const [creatingIn, setCreatingIn] = useState(null);
-
-  const load = (c) => {
-    setFailed((f) => ({ ...f, [c.uid]: false }));
-    Promise.resolve(dispatch(mountCollection({ collectionUid: c.uid, collectionPathname: c.pathname, brunoConfig: c.brunoConfig })))
-      .catch(() => setFailed((f) => ({ ...f, [c.uid]: true })));
-  };
-  const toggle = (c) => {
-    if (!open[c.uid] && c.mountStatus !== 'mounted' && c.mountStatus !== 'mounting') load(c);
-    setOpen({ ...open, [c.uid]: !open[c.uid] });
-  };
-
-  const q = query.trim().toLowerCase();
-  const matches = q
-    ? collections.flatMap((c) => flatten(c.items, [c.name], [])
-      .filter(({ item }) => item.name.toLowerCase().includes(q) || String((item.draft || item).request?.url || '').toLowerCase().includes(q))
-      .map((m) => ({ ...m, collection: c })))
-    : [];
-  const unsearched = q ? collections.filter((c) => c.mountStatus !== 'mounted').length : 0;
-
-  const body = (c) => {
-    if (failed[c.uid]) {
-      return (
-        <p className="bw-phone-empty">
-          这个集合没能加载。
-          <button type="button" className="bw-phone-link" onClick={() => load(c)}>重试</button>
-        </p>
-      );
-    }
-    if (c.mountStatus !== 'mounted') return <p className="bw-phone-empty">加载中…</p>;
-    return (
-      <>
-        <Tree items={c.items} depth={1} onOpen={(item) => onOpen(c, item)} />
-        <button type="button" className="bw-phone-row bw-add" style={{ paddingLeft: 32 }} onClick={() => setCreatingIn(c.uid)} data-testid="bw-phone-new-request">
-          ＋ 新建请求
-        </button>
-      </>
-    );
-  };
-
-  return (
-    <div className="bw-phone-scroll" hidden={hidden}>
-      <div className="bw-phone-search">
-        <input
-          type="search"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="搜索请求名称或地址"
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          data-testid="bw-phone-search"
-        />
-      </div>
-      {q ? (
-        <>
-          {matches.map(({ item, trail, collection }) => (
-            <RequestRow key={item.uid} item={item} depth={0} trail={trail.join(' / ')} onOpen={() => onOpen(collection, item)} />
-          ))}
-          {matches.length === 0 ? <p className="bw-phone-empty">没有找到匹配的请求。</p> : null}
-          {unsearched ? <p className="bw-phone-empty">还有 {unsearched} 个集合没有展开过，不在搜索范围内。</p> : null}
-        </>
-      ) : (
-        <>
-          {collections.length === 0 ? <p className="bw-phone-empty">这个工作区还没有集合。请切到完整界面打开或导入集合。</p> : null}
-          {collections.map((c) => (
-            <div key={c.uid}>
-              <button type="button" className="bw-phone-row bw-collection" onClick={() => toggle(c)} data-testid="bw-phone-collection">
-                <span className="bw-chevron">{open[c.uid] ? '▾' : '▸'}</span>
-                <span className="bw-name">{c.name}</span>
-                {hasDraft(c.items) ? <span className="bw-draft" title="有未保存的修改">●</span> : null}
-              </button>
-              {open[c.uid] ? body(c) : null}
-            </div>
-          ))}
-        </>
-      )}
-      {creatingIn ? <NewRequest collectionUid={creatingIn} onClose={() => setCreatingIn(null)} /> : null}
-    </div>
-  );
-};
-
-const statusText = (item) => {
-  if (['queued', 'sending'].includes(item.requestState)) return '发送中…';
-  const r = item.response;
-  if (!r) return '';
-  if (r.error) return '出错';
-  return `${r.status ?? ''} ${r.statusText ?? ''} · ${r.duration ?? '-'} ms`.trim();
 };
 
 export default function BrunoWebPhone({ phone }) {
@@ -259,8 +144,8 @@ export default function BrunoWebPhone({ phone }) {
 
   const tab = tabs.find((t) => t.uid === activeTabUid);
   const tabCollection = tab ? allCollections.find((c) => c.uid === tab.collectionUid) : null;
-  // As upstream's RequestTabPanel does, give the panes the selected global
-  // environment (variable highlighting and autocomplete use it).
+  // As upstream's RequestTabPanel does, give the editors the selected global
+  // environment (variable highlighting, autocomplete and values use it).
   const collection = useMemo(() => tabCollection && {
     ...tabCollection,
     globalEnvironmentVariables: getGlobalEnvironmentVariables({ globalEnvironments, activeGlobalEnvironmentUid }),
@@ -270,20 +155,40 @@ export default function BrunoWebPhone({ phone }) {
   }, [tabCollection, globalEnvironments, activeGlobalEnvironmentUid]);
   const found = collection && tab ? findItemInCollection(collection, tab.uid) : null;
   const item = found && isItemARequest(found) ? found : null;
+  const variables = useMemo(() => (collection && item ? getAllVariables(collection, item) : {}), [collection, item]);
 
-  const [screen, setScreen] = useState(item ? 'request' : 'list');
-  // A request file that failed to parse, or is still loading, has no request yet.
-  const unreadable = item && (item.partial || item.loading);
-  const current = !item ? 'list' : unreadable && screen !== 'list' ? 'request' : screen;
+  const [screen, setScreenState] = useState(item ? 'request' : 'list');
+  // After a reload the open request arrives once its collection has loaded:
+  // show it, unless the user has already gone somewhere.
+  const moved = useRef(false);
+  const setScreen = (s) => {
+    moved.current = true;
+    setScreenState(s);
+  };
+  useEffect(() => {
+    if (!moved.current && item && screen === 'list') setScreenState('request');
+  }, [item, screen]);
+  const tabMount = tabCollection ? tabCollection.mountStatus : null;
+  useEffect(() => {
+    if (!tabCollection || tabMount === 'mounted' || tabMount === 'mounting') return;
+    Promise.resolve(dispatch(mountCollection({ collectionUid: tabCollection.uid, collectionPathname: tabCollection.pathname, brunoConfig: tabCollection.brunoConfig }))).catch(() => {});
+  }, [tabCollection && tabCollection.uid, tabMount]);
+  const [runner, setRunner] = useState(null);
+  const [sheet, setSheet] = useState(null);
+  const [recent, setRecent] = useState(readRecent);
+  const closeSheet = useCallback(() => setSheet(null), []);
+  const runnerCollection = runner ? allCollections.find((c) => c.uid === runner.collectionUid) : null;
+  const current = screen === 'runner' ? (runnerCollection ? 'runner' : 'list') : !item ? 'list' : screen;
 
-  // A request opened elsewhere (a new request, once its file is loaded) becomes
-  // the current one.
+  // A request opened elsewhere (a new or cloned request, once its file is
+  // loaded) becomes the current one.
   const lastTab = useRef(activeTabUid);
   useEffect(() => {
     if (!item || activeTabUid === lastTab.current) return;
     lastTab.current = activeTabUid;
     setScreen('request');
-  }, [activeTabUid, item]);
+    setRecent(rememberRecent(collection.uid, item.uid));
+  }, [activeTabUid, item, collection]);
 
   // Like a click in the desktop sidebar, opening a request replaces the
   // previous preview tab; editing it keeps the tab, as on the desktop.
@@ -301,13 +206,13 @@ export default function BrunoWebPhone({ phone }) {
   }, [unsaved]);
 
   const open = (c, it) => {
+    lastTab.current = it.uid;
     dispatch(addTab({ uid: it.uid, collectionUid: c.uid, type: 'request', requestPaneTab: 'params', preview: true }));
+    setRecent(rememberRecent(c.uid, it.uid));
     setScreen('request');
   };
 
-  const isHttp = item && !unreadable && item.type === 'http-request';
-  const inFlight = item && ['queued', 'sending'].includes(item.requestState);
-  const request = item ? (item.draft || item).request : null;
+  const inFlight = !!item && ['queued', 'sending'].includes(item.requestState);
   // Show the response screen once the request is under way: sendRequest first
   // asks for any {{?prompt}} variables (cancelling resolves it with nothing
   // sent), then gives the item a new requestUid. It does not settle at all
@@ -325,85 +230,143 @@ export default function BrunoWebPhone({ phone }) {
     setScreen('response');
   }, [waiting, item]);
 
-  return (
-    <Root className="bw-phone" data-testid="bw-phone">
-      <header className="bw-phone-header">
-        {current !== 'list' ? (
-          <button type="button" className="bw-phone-back" onClick={() => setScreen(current === 'request' ? 'list' : 'request')} aria-label="返回" data-testid="bw-phone-back">‹</button>
-        ) : null}
-        <div className="bw-phone-title">{current === 'list' ? (activeWorkspace?.name || 'Bruno') : item.name}</div>
-        {current !== 'list' && item.draft ? (
-          <button type="button" className="bw-phone-action" onClick={() => dispatch(saveRequest(item.uid, collection.uid))} data-testid="bw-phone-save">保存</button>
-        ) : null}
-        <button type="button" className="bw-phone-action bw-subtle" onClick={phone.showFull} data-testid="bw-phone-full">完整界面</button>
-      </header>
+  const envName = collection ? (collection.environments || []).find((e) => e.uid === collection.activeEnvironmentUid)?.name : null;
+  const runnerEnvName = runnerCollection ? (runnerCollection.environments || []).find((e) => e.uid === runnerCollection.activeEnvironmentUid)?.name : null;
+  const startRunner = (c, folderUid) => {
+    setSheet(null);
+    setRunner({ collectionUid: c.uid, folderUid: folderUid || null });
+    setScreen('runner');
+  };
 
+  const copyCurl = () => curlFor(item, collection).then((s) => copyText(s, 'Copied as cURL'));
+
+  const onRequestAction = (action) => {
+    const ops = itemOps(dispatch, collection);
+    switch (action) {
+      case 'curl': setSheet(null); return copyCurl();
+      case 'code': return setSheet({ type: 'code' });
+      case 'clone': return setSheet({ type: 'prompt', title: 'Clone request', label: 'Name', initial: `${item.name} copy`, action: 'Clone', run: (name) => ops.clone(item, name), testId: 'bw-phone-clone' });
+      case 'rename': return setSheet({ type: 'prompt', title: 'Rename request', label: 'Name', initial: item.name, action: 'Rename', run: (name) => ops.rename(item, name), testId: 'bw-phone-rename' });
+      case 'move': return setSheet({ type: 'move', item, collection: tabCollection });
+      case 'run': return startRunner(tabCollection, null);
+      case 'full': return phone.showFull();
+      case 'delete': return setSheet({ type: 'confirm', title: 'Delete request', message: `Delete “${item.name}”? This removes its file.`, action: 'Delete', run: () => ops.remove(item).then(() => setScreen('list')), testId: 'bw-phone-delete' });
+      default: return null;
+    }
+  };
+
+  const onGroupAction = (c, folder) => (action) => {
+    const ops = itemOps(dispatch, c);
+    switch (action) {
+      case 'new-request': return setSheet({ type: 'new', initial: { kind: 'request', collectionUid: c.uid, folderUid: folder?.uid || null } });
+      case 'new-folder': return setSheet({ type: 'new', initial: { kind: 'folder', collectionUid: c.uid, folderUid: folder?.uid || null } });
+      case 'run': return startRunner(c, folder?.uid);
+      case 'rename': return setSheet({ type: 'prompt', title: 'Rename folder', label: 'Name', initial: folder.name, action: 'Rename', run: (name) => ops.rename(folder, name), testId: 'bw-phone-rename' });
+      case 'clone': return setSheet({ type: 'prompt', title: 'Clone folder', label: 'Name', initial: `${folder.name} copy`, action: 'Clone', run: (name) => ops.clone(folder, name), testId: 'bw-phone-clone' });
+      case 'delete': return setSheet({ type: 'confirm', title: 'Delete folder', message: `Delete “${folder.name}” and everything in it?`, action: 'Delete', run: () => ops.remove(folder), testId: 'bw-phone-delete' });
+      case 'full': return phone.showFull();
+      default: return null;
+    }
+  };
+
+  const onResponseAction = (action) => {
+    const r = item.response;
+    switch (action) {
+      case 'copy': setSheet(null); return copyText(bodyText(r, formatOf(r)), 'Copied the body');
+      case 'share':
+        setSheet(null);
+        return navigator.share({ title: item.name, text: bodyText(r, formatOf(r)) }).catch((e) => {
+          if (e && e.name !== 'AbortError') toast.error('Could not share');
+        });
+      case 'example': return setSheet({ type: 'prompt', title: 'Save as example', label: 'Example name', initial: `${item.name} ${r.status || ''}`.trim(), action: 'Save', run: (name) => saveAsExample(dispatch, item, collection, name), testId: 'bw-phone-example' });
+      case 'download':
+        setSheet(null);
+        return window.ipcRenderer.invoke('renderer:save-response-to-file', r, item.requestSent?.url, item.pathname).catch(() => toast.error('Could not save the body'));
+      case 'curl': setSheet(null); return copyCurl();
+      case 'full': return phone.showFull();
+      default: return null;
+    }
+  };
+
+  const peek = (name, anchor) => setSheet({ type: 'var', name, anchor });
+
+  return (
+    <Themed className="bw-phone" data-testid="bw-phone">
       {/* Kept while a request is open, so going back finds the list as it was
           (open folders, search, scroll position). */}
-      <ListScreen collections={collections} onOpen={open} hidden={current !== 'list'} />
+      <ListScreen
+        collections={collections}
+        workspaceName={activeWorkspace?.name || 'Bruno'}
+        recent={recent}
+        onOpen={open}
+        onNew={() => setSheet({ type: 'new', initial: null })}
+        onMenu={(c, folder) => setSheet({ type: 'group', collection: c, folder })}
+        onWorkspaceMenu={() => setSheet({ type: 'workspace' })}
+        hidden={current !== 'list'}
+      />
 
-      {current === 'request' && unreadable ? (
-        <div className="bw-phone-scroll">
-          {item.partial ? <RequestNotLoaded item={item} collection={collection} /> : <RequestIsLoading item={item} />}
-        </div>
-      ) : null}
-
-      {current === 'request' && !unreadable && !isHttp ? (
-        <div className="bw-phone-scroll">
-          <p className="bw-phone-empty">
-            {methodOf(item)} 请求在手机视图里还不能编辑和发送，请在完整界面里使用。
-          </p>
-          <button type="button" className="bw-phone-send" onClick={phone.showFull}>在完整界面打开</button>
-        </div>
-      ) : null}
-
-      {current === 'request' && isHttp ? (
-        <div className="bw-phone-scroll">
-          <div className="bw-phone-env"><EnvironmentSelector collection={collection} /></div>
-          <div className="bw-phone-url">
-            <select
-              className={`bw-method bw-${String(request.method).toLowerCase()}`}
-              value={request.method}
-              onChange={(e) => dispatch(updateRequestMethod({ method: e.target.value, itemUid: item.uid, collectionUid: collection.uid }))}
-              aria-label="请求方法"
-              data-testid="bw-phone-method"
-            >
-              {(METHODS.includes(request.method) ? METHODS : [request.method, ...METHODS]).map((m) => <option key={m} value={m}>{m}</option>)}
-            </select>
-            <textarea
-              data-testid="bw-phone-url"
-              value={request.url}
-              rows={3}
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              placeholder="请求地址"
-              onChange={(e) => dispatch(requestUrlChanged({ itemUid: item.uid, collectionUid: collection.uid, url: e.target.value }))}
-            />
-          </div>
-          <button type="button" className="bw-phone-send" onClick={send} disabled={!!waiting || inFlight} data-testid="bw-phone-send">发送</button>
-          {item.response || item.requestState ? (
-            <button type="button" className="bw-phone-row" onClick={() => setScreen('response')} data-testid="bw-phone-last-response">
-              <span className="bw-name">上次响应：{statusText(item)}</span>
-              <span className="bw-chevron">›</span>
-            </button>
-          ) : null}
-          <button type="button" className="bw-phone-row" onClick={() => setScreen('edit')} data-testid="bw-phone-edit">
-            <span className="bw-name">参数、请求头、请求体、认证…</span>
-            <span className="bw-chevron">›</span>
-          </button>
-        </div>
-      ) : null}
-
-      {current === 'edit' ? (
-        <div className="bw-phone-pane"><HttpRequestPane item={item} collection={collection} /></div>
+      {current === 'request' ? (
+        <RequestScreen
+          item={item}
+          collection={collection}
+          paneTab={tab.requestPaneTab}
+          setPaneTab={(t) => dispatch(updateRequestPaneTab({ uid: tab.uid, requestPaneTab: t }))}
+          variables={variables}
+          envName={envName}
+          busy={!!waiting || inFlight}
+          onBack={() => setScreen('list')}
+          onSend={send}
+          onSave={() => dispatch(saveRequest(item.uid, collection.uid))}
+          onMenu={() => setSheet({ type: 'request' })}
+          onEnv={() => setSheet({ type: 'env' })}
+          onVariable={peek}
+          onResponse={() => setScreen('response')}
+          onFull={phone.showFull}
+        />
       ) : null}
 
       {current === 'response' ? (
-        <div className="bw-phone-pane" data-testid="bw-phone-response">
-          <ResponsePane item={item} collection={collection} response={item.response} />
-        </div>
+        <ResponseScreen
+          item={item}
+          collection={collection}
+          paneTab={tab.responsePaneTab}
+          setPaneTab={(t) => dispatch(updateResponsePaneTab({ uid: tab.uid, responsePaneTab: t }))}
+          inFlight={inFlight}
+          onBack={() => setScreen('request')}
+          onSend={send}
+          onCancel={() => dispatch(cancelRequest(item.cancelTokenUid, item, collection))}
+          onMenu={() => setSheet({ type: 'response' })}
+          onCopyCurl={copyCurl}
+        />
       ) : null}
-    </Root>
+
+      {current === 'runner' ? (
+        <RunnerScreen
+          collection={runnerCollection}
+          folderUid={runner.folderUid}
+          envName={runnerEnvName}
+          onBack={() => setScreen('list')}
+          onEnv={() => setSheet({ type: 'env', collection: runnerCollection })}
+        />
+      ) : null}
+
+      {sheet?.type === 'env' && (sheet.collection || collection) ? <EnvSheet collection={sheet.collection || collection} onClose={closeSheet} /> : null}
+      {sheet?.type === 'var' && item ? (
+        <VarPeek name={sheet.name} anchor={sheet.anchor} collection={collection} item={item} onClose={closeSheet} onOpenEnv={() => setSheet({ type: 'env' })} />
+      ) : null}
+      {sheet?.type === 'request' && item ? <RequestMenu item={item} collection={collection} onClose={closeSheet} onAction={onRequestAction} /> : null}
+      {sheet?.type === 'response' && item ? <ResponseMenu item={item} onClose={closeSheet} onAction={onResponseAction} /> : null}
+      {sheet?.type === 'group' ? <GroupMenu collection={sheet.collection} folder={sheet.folder} onClose={closeSheet} onAction={onGroupAction(sheet.collection, sheet.folder)} /> : null}
+      {sheet?.type === 'workspace' ? <WorkspaceMenu onClose={closeSheet} onFull={phone.showFull} /> : null}
+      {sheet?.type === 'code' && item ? <CodeSheet item={item} collection={collection} onClose={closeSheet} /> : null}
+      {sheet?.type === 'move' ? <MoveSheet item={sheet.item} collection={sheet.collection} collections={collections} onClose={closeSheet} /> : null}
+      {sheet?.type === 'new' ? <NewSheet collections={collections} initial={sheet.initial} onClose={closeSheet} /> : null}
+      {sheet?.type === 'prompt' ? (
+        <PromptSheet title={sheet.title} label={sheet.label} initial={sheet.initial} action={sheet.action} onSubmit={sheet.run} onClose={closeSheet} testId={sheet.testId} />
+      ) : null}
+      {sheet?.type === 'confirm' ? (
+        <ConfirmSheet title={sheet.title} message={sheet.message} action={sheet.action} onConfirm={sheet.run} onClose={closeSheet} testId={sheet.testId} />
+      ) : null}
+    </Themed>
   );
 }

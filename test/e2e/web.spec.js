@@ -350,10 +350,41 @@ test.describe('on a phone', () => {
     }
   };
   const phoneCollection = (page, name) => page.getByTestId('bw-phone-collection').filter({ hasText: name });
-  const phoneRequest = (page, name) => page.getByTestId('bw-phone-request').filter({ hasText: name });
+  // The tree's row, not the same request's row under Recent.
+  const phoneRequest = (page, name) => page.getByTestId('bw-phone-request').filter({ hasText: name }).last();
+  const title = (page) => page.locator('.bw-phone-header .bw-title-text');
+  const urlView = (page) => page.getByTestId('bw-phone-url-view');
+  const setUrl = async (page, url) => {
+    await urlView(page).tap();
+    await page.getByTestId('bw-phone-url').fill(url);
+    await page.getByTestId('bw-phone-url').blur();
+  };
   const fullInterface = async (page) => {
+    const menu = page.getByTestId('bw-phone-menu');
+    await ((await menu.isVisible()) ? menu : page.getByTestId('bw-phone-more')).tap();
     await page.getByTestId('bw-phone-full').tap();
     await expect(page.getByTestId('bw-phone')).toHaveCount(0);
+  };
+  const openPhoneRequest = async (page, collection, request) => {
+    await phoneCollection(page, collection).tap();
+    await phoneRequest(page, request).tap();
+    await expect(title(page)).toHaveText(request);
+  };
+  const sendAndWait = async (page) => {
+    await page.getByTestId('bw-phone-send').tap();
+    await expect(page.getByTestId('bw-phone-status')).toBeVisible({ timeout: 30000 });
+  };
+  // The response body is a CodeMirror editor; its text is the document, not the DOM.
+  const bodyText = (page) => page.getByTestId('bw-phone-response-body').locator('.CodeMirror').evaluate((el) => el.CodeMirror.getValue());
+  // WebKit has no clipboard permission to grant, so record what the page copies.
+  const captureClipboard = (page) => page.addInitScript(() => {
+    window.__copied = [];
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async (t) => { window.__copied.push(t); }, readText: async () => window.__copied[window.__copied.length - 1] || '' } });
+  });
+  const copied = (page) => page.evaluate(() => window.__copied[window.__copied.length - 1] || '');
+  const writeEnv = (dir, name, vars) => {
+    fs.mkdirSync(path.join(dir, 'environments'), { recursive: true });
+    fs.writeFileSync(path.join(dir, 'environments', `${name}.yml`), `name: ${name}\n\nvariables:\n${vars.map(([n, v]) => `  - name: ${n}\n    value: ${v}\n`).join('')}`);
   };
 
   test('phone mode: change a request\'s method and URL, send the unsaved draft, save it, find it in the full interface', async ({ page, server, echo }) => {
@@ -367,38 +398,37 @@ test.describe('on a phone', () => {
 
     // Collections and folders open in place; a collection loads when first opened.
     await phoneCollection(page, 'phone').tap();
-    await page.locator('.bw-phone-row.bw-folder').filter({ hasText: 'nested' }).tap();
+    await page.getByTestId('bw-phone-folder').filter({ hasText: 'nested' }).tap();
     await expect(phoneRequest(page, 'deep-one')).toBeVisible();
     await phoneRequest(page, 'echo-get').tap();
-    await expect(page.locator('.bw-phone-title')).toHaveText('echo-get');
+    await expect(title(page)).toHaveText('echo-get');
 
     await page.getByTestId('bw-phone-method').selectOption('POST');
-    await page.getByTestId('bw-phone-url').fill(`${echo.url}/phone?a=2`);
+    await setUrl(page, `${echo.url}/phone?a=2`);
+    await expect(urlView(page)).toHaveText(`${echo.url}/phone?a=2`);
     await expect(page.getByTestId('bw-phone-save')).toBeVisible();
+    // The URL's query is the Params tab's table.
+    await expect(page.getByTestId('bw-phone-params-row')).toHaveCount(1);
+    await expect(page.getByTestId('bw-phone-params-value-view')).toHaveText('2');
 
     // The unsaved draft survives a trip to the full interface and back.
     await fullInterface(page);
     await expect(page.locator('.request-tab').filter({ hasText: 'echo-get' }).locator('.close-gradient.has-changes')).toHaveCount(1);
     await page.getByTestId('bw-phone-switch').tap();
-    await expect(page.getByTestId('bw-phone-url')).toHaveValue(`${echo.url}/phone?a=2`);
+    await expect(urlView(page)).toHaveText(`${echo.url}/phone?a=2`);
     await expect(page.getByTestId('bw-phone-method')).toHaveValue('POST');
 
-    // The edit screen is upstream's request pane, with the draft's query.
-    await page.getByTestId('bw-phone-edit').tap();
-    await expect(page.locator('.bw-phone-pane table').first()).toContainText('a');
-    await expect(page.locator('.bw-phone-pane table').first().locator('text=2').first()).toBeVisible();
-    await page.getByTestId('bw-phone-back').tap();
-
     // What is sent is the draft on the screen, not the saved file.
-    await page.getByTestId('bw-phone-send').tap();
-    const response = page.getByTestId('bw-phone-response');
-    await expect(response.getByTestId('response-status-code')).toContainText('200');
-    await expect(response).toContainText('"method": "POST"');
-    await expect(response).toContainText('/phone?a=2');
-    // The response gets the whole screen below the header.
-    expect((await response.boundingBox()).height).toBeGreaterThan(600);
+    await sendAndWait(page);
+    await expect(page.getByTestId('bw-phone-status')).toContainText('200');
+    expect(await bodyText(page)).toContain('"method": "POST"');
+    expect(await bodyText(page)).toContain('/phone?a=2');
+    // The body gets the screen below the status and tabs.
+    expect((await page.getByTestId('bw-phone-response-body').boundingBox()).height).toBeGreaterThan(450);
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(390);
 
+    await page.getByTestId('bw-phone-back').tap();
+    await expect(page.getByTestId('bw-phone-last-response')).toContainText('200');
     await page.getByTestId('bw-phone-save').tap();
     await expect(page.getByTestId('bw-phone-save')).toHaveCount(0);
     const saved = fs.readFileSync(path.join(dir, 'echo-get.yml'), 'utf8');
@@ -410,11 +440,11 @@ test.describe('on a phone', () => {
     await expect(page.locator('.request-tab').filter({ hasText: 'echo-get' })).toBeVisible();
     await expect(page.getByTestId('response-status-code')).toContainText('200');
     await page.getByTestId('bw-phone-switch').tap();
-    await expect(page.locator('.bw-phone-title')).toHaveText('echo-get');
-    await expect(page.getByTestId('bw-phone-url')).toHaveValue(`${echo.url}/phone?a=2`);
+    await expect(title(page)).toHaveText('echo-get');
+    await expect(urlView(page)).toHaveText(`${echo.url}/phone?a=2`);
   });
 
-  test('phone mode: search finds requests inside folders; a new request opens ready to send', async ({ page, server, echo }) => {
+  test('phone mode: search finds requests inside folders; recent requests come first; a new request opens ready to send', async ({ page, server, echo }) => {
     const srv = await server();
     const dir = path.join(srv.workspace, 'phone');
     writeCollection(dir, 'phone', [{ name: 'echo-get', url: `${echo.url}/phone` }]);
@@ -431,31 +461,55 @@ test.describe('on a phone', () => {
     await expect(phoneRequest(page, 'echo-get')).toHaveCount(0);
     await page.getByTestId('bw-phone-search').fill('/deep');
     await phoneRequest(page, 'deep-one').tap();
-    await expect(page.locator('.bw-phone-title')).toHaveText('deep-one');
+    await expect(title(page)).toHaveText('deep-one');
     // Back finds the list as it was left.
     await page.getByTestId('bw-phone-back').tap();
     await expect(page.getByTestId('bw-phone-search')).toHaveValue('/deep');
+    await page.getByTestId('bw-phone-search').fill('');
+    await expect(page.locator('section[aria-label="Recent"]').getByTestId('bw-phone-request')).toHaveText(/deep-one/);
 
     // A request file that does not parse opens upstream's notice, not the crash page.
-    await page.getByTestId('bw-phone-search').fill('');
     fs.writeFileSync(path.join(dir, 'broken.yml'), 'info:\n  name: broken\n  type: http\n\nhttp:\n  url: [unclosed\n  : : :\n');
     await phoneRequest(page, 'broken').tap();
     await expect(page.getByTestId('bw-phone')).toBeVisible();
     await expect(page.getByText('Oops! Something went wrong')).toHaveCount(0);
     await page.getByTestId('bw-phone-back').tap();
 
+    // New request: name, method and URL in one sheet; it opens once its file exists.
     await page.getByTestId('bw-phone-new-request').tap();
-    const dialog = page.locator('.bruno-modal');
-    await dialog.getByTestId('request-name').fill('made-on-a-phone');
-    await dialog.getByRole('button', { name: 'Create', exact: true }).tap();
-    await expect(page.locator('.bw-phone-title')).toHaveText('made-on-a-phone');
+    await page.getByTestId('bw-phone-new-name').fill('made-on-a-phone');
+    await page.getByTestId('bw-phone-new-method').selectOption('POST');
+    await page.getByTestId('bw-phone-new-url').fill(`${echo.url}/new`);
+    await page.getByTestId('bw-phone-new-create').tap();
+    await expect(title(page)).toHaveText('made-on-a-phone');
     await expect.poll(() => fs.existsSync(path.join(dir, 'made-on-a-phone.yml'))).toBe(true);
-    await page.getByTestId('bw-phone-url').fill(`${echo.url}/new`);
-    await page.getByTestId('bw-phone-send').tap();
-    await expect(page.getByTestId('bw-phone-response')).toContainText('/new');
+    await sendAndWait(page);
+    expect(await bodyText(page)).toContain('/new');
+    expect(await bodyText(page)).toContain('"method": "POST"');
+
+    // A new folder, and a request from a cURL command inside it.
+    await page.getByTestId('bw-phone-back').tap();
+    await page.getByTestId('bw-phone-back').tap();
+    await page.getByTestId('bw-phone-collection-menu').tap();
+    await page.getByTestId('bw-phone-action-new-folder').tap();
+    await page.getByTestId('bw-phone-new-name').fill('orders');
+    await page.getByTestId('bw-phone-new-create').tap();
+    await expect.poll(() => fs.existsSync(path.join(dir, 'orders'))).toBe(true);
+    await page.locator('.bw-row-wrap').filter({ has: page.getByTestId('bw-phone-folder').filter({ hasText: 'orders' }) }).getByTestId('bw-phone-folder-menu').tap();
+    await page.getByTestId('bw-phone-action-new-request').tap();
+    await page.getByTestId('bw-phone-new-name').fill('from-curl');
+    await page.getByTestId('bw-phone-new-curl-toggle').tap();
+    await page.getByTestId('bw-phone-new-curl').fill(`curl -X PUT ${echo.url}/curl -H 'X-From: curl' -d '{"a":1}'`);
+    await page.getByTestId('bw-phone-new-create').tap();
+    await expect(title(page)).toHaveText('from-curl');
+    await expect.poll(() => fs.existsSync(path.join(dir, 'orders', 'from-curl.yml'))).toBe(true);
+    await sendAndWait(page);
+    const echoed = await bodyText(page);
+    expect(echoed).toContain('"method": "PUT"');
+    expect(echoed).toContain('"x-from": "curl"');
   });
 
-  test('phone mode: a variable prompt can be cancelled, a failed request says so, leaving with unsaved changes asks first', async ({ page, server, echo }) => {
+  test('phone mode: a variable prompt can be cancelled, a slow request can be stopped, a failed request says so, leaving with unsaved changes asks first', async ({ page, server, echo }) => {
     const srv = await server();
     const dir = path.join(srv.workspace, 'phone');
     writeCollection(dir, 'phone', [{ name: 'ask', url: `${echo.url}/item/{{?Item id}}` }]);
@@ -466,8 +520,7 @@ test.describe('on a phone', () => {
       d.dismiss();
     });
     await openApp(page, srv);
-    await phoneCollection(page, 'phone').tap();
-    await phoneRequest(page, 'ask').tap();
+    await openPhoneRequest(page, 'phone', 'ask');
 
     // Cancelling the prompt sends nothing and stays on the request.
     await page.getByTestId('bw-phone-send').tap();
@@ -475,22 +528,27 @@ test.describe('on a phone', () => {
     await expect(prompt).toBeVisible();
     await page.locator('.bruno-modal').getByRole('button', { name: 'Cancel', exact: true }).tap();
     await expect(prompt).toBeHidden();
-    await expect(page.getByTestId('bw-phone-url')).toBeVisible();
+    await expect(urlView(page)).toBeVisible();
     await expect(page.getByTestId('bw-phone-send')).toBeEnabled();
 
     await page.getByTestId('bw-phone-send').tap();
     await page.getByTestId('prompt-variable-input-0').fill('42');
     await page.locator('.bruno-modal').getByRole('button', { name: 'Continue', exact: true }).tap();
-    await expect(page.getByTestId('bw-phone-response')).toContainText('/item/42');
+    await expect(page.getByTestId('bw-phone-status')).toContainText('200');
+    expect(await bodyText(page)).toContain('/item/42');
 
-    // While a request is under way it cannot be sent again.
+    // While a request is under way it cannot be sent again, and it can be stopped.
     await page.getByTestId('bw-phone-back').tap();
-    await page.getByTestId('bw-phone-url').fill(`${echo.url}/slow`);
+    await setUrl(page, `${echo.url}/slow`);
     await page.getByTestId('bw-phone-send').tap();
-    await expect(page.getByTestId('bw-phone-response')).toBeVisible();
+    await expect(page.getByTestId('bw-phone-sending')).toBeVisible();
     await page.getByTestId('bw-phone-back').tap();
     await expect(page.getByTestId('bw-phone-send')).toBeDisabled();
-    await expect(page.getByTestId('bw-phone-send')).toBeEnabled({ timeout: 10000 });
+    await page.getByTestId('bw-phone-last-response').tap();
+    await page.getByTestId('bw-phone-cancel').tap();
+    await expect(page.getByTestId('bw-phone-sending')).toHaveCount(0);
+    await page.getByTestId('bw-phone-back').tap();
+    await expect(page.getByTestId('bw-phone-send')).toBeEnabled();
     await page.getByTestId('bw-phone-save').tap();
     await expect(page.getByTestId('bw-phone-save')).toHaveCount(0);
 
@@ -499,17 +557,247 @@ test.describe('on a phone', () => {
     await page.locator('[data-app-state="loaded"]').waitFor();
     expect(asked).toEqual([]);
 
+    // After a reload the request is one tap away under Recent.
+    await page.locator('section[aria-label="Recent"]').getByTestId('bw-phone-request').filter({ hasText: 'ask' }).tap();
+    await expect(title(page)).toHaveText('ask');
     // Nothing listens on port 9: the error shows instead of a spinner.
-    await phoneCollection(page, 'phone').tap();
-    await phoneRequest(page, 'ask').tap();
-    await page.getByTestId('bw-phone-url').fill('http://127.0.0.1:9/nothing');
+    await setUrl(page, 'http://127.0.0.1:9/nothing');
     await page.getByTestId('bw-phone-send').tap();
-    const response = page.getByTestId('bw-phone-response');
-    await expect(response).toContainText(/ECONNREFUSED|connect/i);
-    await expect(response.getByText(/Sending/i)).toHaveCount(0);
+    await expect(page.getByTestId('bw-phone-response-error')).toContainText(/ECONNREFUSED|connect/i);
+    await expect(page.getByTestId('bw-phone-sending')).toHaveCount(0);
 
     await page.close({ runBeforeUnload: true });
     await expect.poll(() => asked).toEqual(['beforeunload']);
+  });
+
+  test('phone mode: environments: pick one, see and change a variable from the URL, edit and save the environment', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'with-vars', url: "'{{host}}/env?t={{token}}'" }]);
+    writeEnv(dir, 'dev', [['host', echo.url], ['token', 'first']]);
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+    await openPhoneRequest(page, 'phone', 'with-vars');
+
+    // Without an environment the variables are unknown.
+    await expect(page.getByTestId('bw-phone-var').first()).toHaveClass(/bw-var-invalid/);
+    await page.getByTestId('bw-phone-env').tap();
+    await page.getByTestId('bw-phone-env-choice').filter({ hasText: 'dev' }).tap();
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId('bw-phone-env')).toHaveText(/dev/);
+    await expect(page.getByTestId('bw-phone-var').first()).toHaveClass(/bw-var-valid/);
+
+    // A variable's value, changed in place, is saved to the environment file.
+    await page.getByTestId('bw-phone-var').filter({ hasText: 'token' }).tap();
+    await expect(page.getByTestId('bw-phone-var-value')).toHaveText('first');
+    await page.getByTestId('bw-phone-var-edit').tap();
+    await page.getByTestId('bw-phone-var-input').fill('second');
+    await page.getByTestId('bw-phone-var-save').tap();
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'environments', 'dev.yml'), 'utf8')).toContain('second');
+
+    // The environment sheet edits as a draft until Save.
+    await page.getByTestId('bw-phone-env').tap();
+    const values = page.getByTestId('bw-phone-env-var-value');
+    await values.nth(1).fill('third');
+    await expect(page.getByTestId('bw-phone-env-unsaved')).toBeVisible();
+    await page.getByTestId('bw-phone-env-save').tap();
+    await expect(page.getByTestId('bw-phone-env-unsaved')).toHaveCount(0);
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'environments', 'dev.yml'), 'utf8')).toContain('third');
+    await page.keyboard.press('Escape');
+
+    await sendAndWait(page);
+    expect(await bodyText(page)).toContain('/env?t=third');
+  });
+
+  test('phone mode: the response\'s headers, what was sent, test results, search, JSONPath filter, copy', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{
+      name: 'checked',
+      url: `${echo.url}/checked?x=1`,
+      tests: 'test("status is 200", () => expect(res.getStatus()).to.equal(200));\ntest("is created", () => expect(res.getStatus()).to.equal(201));'
+    }]);
+    addToWorkspace(srv, 'phone');
+    await captureClipboard(page);
+    await openApp(page, srv);
+    await openPhoneRequest(page, 'phone', 'checked');
+    await sendAndWait(page);
+
+    const tabs = page.getByTestId('bw-phone-response-tabs');
+    await expect(tabs.getByTestId('bw-tab-tests')).toContainText('1/2');
+    await tabs.getByTestId('bw-tab-headers').tap();
+    await expect(page.getByTestId('bw-phone-response')).toContainText('set-cookie');
+    await tabs.getByTestId('bw-tab-timeline').tap();
+    await expect(page.getByTestId('bw-phone-sent-url')).toContainText(`${echo.url}/checked?x=1`);
+    await tabs.getByTestId('bw-tab-tests').tap();
+    const results = page.getByTestId('bw-phone-test-result');
+    await expect(results).toHaveCount(2);
+    await expect(results.filter({ hasText: 'is created' })).toContainText('expected 200 to equal 201');
+
+    // Search marks every match; the JSONPath filter shows just a part.
+    await page.getByTestId('bw-phone-find').tap();
+    await page.getByTestId('bw-phone-find-input').fill('checked');
+    await expect(page.getByTestId('bw-phone-find-count')).toHaveText('1 / 1');
+    await expect(page.locator('.bw-hit-current')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Filter by JSON path' }).tap();
+    await page.getByTestId('bw-phone-find-input').fill('$.method');
+    await expect.poll(() => bodyText(page)).toContain('GET');
+    expect(await bodyText(page)).not.toContain('headers');
+    await page.getByTestId('bw-phone-find-done').tap();
+    await expect.poll(() => bodyText(page)).toContain('"headers"');
+
+    // Copy the body.
+    await page.getByTestId('bw-phone-response-menu').tap();
+    await page.getByTestId('bw-phone-action-copy-body').tap();
+    await expect.poll(() => copied(page)).toContain('/checked?x=1');
+
+    // Save as example: stored in the request file.
+    await page.getByTestId('bw-phone-response-menu').tap();
+    await page.getByTestId('bw-phone-action-example').tap();
+    await page.getByTestId('bw-phone-example-input').fill('ok example');
+    await page.getByTestId('bw-phone-example-ok').tap();
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'checked.yml'), 'utf8')).toContain('ok example');
+  });
+
+  test('phone mode: request menu: copy as cURL, generate code, clone, rename, move, delete', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'original', url: `${echo.url}/orig` }]);
+    fs.mkdirSync(path.join(dir, 'archive'));
+    writeRequest(path.join(dir, 'archive'), { name: 'old', url: `${echo.url}/old` });
+    addToWorkspace(srv, 'phone');
+    await captureClipboard(page);
+    await openApp(page, srv);
+    await openPhoneRequest(page, 'phone', 'original');
+
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-curl').tap();
+    await expect.poll(() => copied(page)).toContain(`curl --request GET`);
+
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-code').tap();
+    await expect(page.getByTestId('bw-phone-code-text')).toContainText(`${echo.url}/orig`);
+    await page.getByTestId('bw-phone-code-language').selectOption({ label: 'JavaScript-fetch' });
+    await expect(page.getByTestId('bw-phone-code-text')).toContainText('fetch(');
+    await page.keyboard.press('Escape');
+
+    // Clone opens the copy.
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-clone').tap();
+    await page.getByTestId('bw-phone-clone-input').fill('the-copy');
+    await page.getByTestId('bw-phone-clone-ok').tap();
+    await expect(title(page)).toHaveText('the-copy');
+    await expect.poll(() => fs.existsSync(path.join(dir, 'the-copy.yml'))).toBe(true);
+
+    // Rename renames the file too.
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-rename').tap();
+    await page.getByTestId('bw-phone-rename-input').fill('renamed');
+    await page.getByTestId('bw-phone-rename-ok').tap();
+    await expect(title(page)).toHaveText('renamed');
+    await expect.poll(() => fs.existsSync(path.join(dir, 'renamed.yml'))).toBe(true);
+    expect(fs.existsSync(path.join(dir, 'the-copy.yml'))).toBe(false);
+
+    // Move into a folder.
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-move').tap();
+    await page.getByTestId('bw-phone-move').getByRole('radio', { name: 'archive' }).tap();
+    await page.getByTestId('bw-phone-move-ok').tap();
+    await expect.poll(() => fs.existsSync(path.join(dir, 'archive', 'renamed.yml'))).toBe(true);
+
+    // Delete asks first, then removes the file and goes back to the list.
+    await page.getByTestId('bw-phone-back').tap();
+    await phoneRequest(page, 'original').tap();
+    await page.getByTestId('bw-phone-menu').tap();
+    await page.getByTestId('bw-phone-action-delete').tap();
+    await page.getByTestId('bw-phone-delete-ok').tap();
+    await expect.poll(() => fs.existsSync(path.join(dir, 'original.yml'))).toBe(false);
+    await expect(page.getByTestId('bw-phone-search')).toBeVisible();
+  });
+
+  test('phone mode: editing params in bulk, headers, auth, request vars, a form body and a script reaches the request that is sent', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'edited', method: 'POST', url: `${echo.url}/edit` }]);
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+    await openPhoneRequest(page, 'phone', 'edited');
+
+    // Params in bulk become the URL's query.
+    await page.getByTestId('bw-phone-params-bulk').tap();
+    await page.getByTestId('bw-phone-params-bulk-text').fill('a:1\n//b:2\nc:{{who}}');
+    await page.getByTestId('bw-phone-params-bulk-done').tap();
+    await expect(urlView(page)).toHaveText(`${echo.url}/edit?a=1&c={{who}}`);
+
+    // A header.
+    await page.getByTestId('bw-tab-headers').tap();
+    await page.getByTestId('bw-phone-headers-add').tap();
+    await page.getByTestId('bw-phone-headers-name').last().fill('X-Phone');
+    await page.getByTestId('bw-phone-headers-value-view').last().tap();
+    await page.getByTestId('bw-phone-headers-value').fill('yes');
+
+    // Bearer auth, through upstream's own auth form.
+    await page.getByTestId('bw-tab-auth').tap();
+    await page.getByTestId('bw-phone-auth-mode').selectOption('bearer');
+    await page.locator('.bw-upstream-form .CodeMirror').first().click();
+    await page.keyboard.type('tok-123');
+
+    // A request variable used in the query.
+    await page.getByTestId('bw-tab-vars').tap();
+    await page.getByTestId('bw-phone-req-vars-add').tap();
+    await page.getByTestId('bw-phone-req-vars-name').last().fill('who');
+    await page.getByTestId('bw-phone-req-vars-value-view').last().tap();
+    await page.getByTestId('bw-phone-req-vars-value').fill('me');
+
+    // A form body.
+    await page.getByTestId('bw-tab-body').tap();
+    await page.getByTestId('bw-phone-body-mode').selectOption('formUrlEncoded');
+    await page.getByTestId('bw-phone-form-add').tap();
+    await page.getByTestId('bw-phone-form-name').last().fill('field');
+    await page.getByTestId('bw-phone-form-value-view').last().tap();
+    await page.getByTestId('bw-phone-form-value').fill('value one');
+
+    // A pre-request script, typed with the symbol keys' help.
+    await page.getByTestId('bw-tab-script').tap();
+    await page.getByTestId('bw-phone-script-editor').locator('.CodeMirror').click();
+    await page.keyboard.type('req.setHeader("X-Script", "ran")');
+    await page.getByRole('toolbar', { name: 'Symbols' }).getByRole('button', { name: ';', exact: true }).tap();
+    await expect.poll(() => page.getByTestId('bw-phone-script-editor').locator('.CodeMirror').evaluate((el) => el.CodeMirror.getValue())).toBe('req.setHeader("X-Script", "ran");');
+
+    await sendAndWait(page);
+    const sent = JSON.parse(await bodyText(page));
+    expect(sent.url).toBe('/edit?a=1&c=me');
+    expect(sent.headers['x-phone']).toBe('yes');
+    expect(sent.headers.authorization).toBe('Bearer tok-123');
+    expect(sent.headers['x-script']).toBe('ran');
+    expect(sent.body).toBe('field=value+one');
+
+    await page.getByTestId('bw-phone-back').tap();
+    await page.getByTestId('bw-phone-save').tap();
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'edited.yml'), 'utf8')).toContain('X-Phone');
+  });
+
+  test('phone mode: run a whole collection and see which requests failed', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [
+      { name: 'one', url: `${echo.url}/one`, tests: 'test("ok", () => expect(res.getStatus()).to.equal(200));' },
+      { name: 'two', url: `${echo.url}/two`, tests: 'test("wrong", () => expect(res.getStatus()).to.equal(404));' },
+      { name: 'three', url: `${echo.url}/three` }
+    ]);
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+    await phoneCollection(page, 'phone').tap();
+    await expect(phoneRequest(page, 'three')).toBeVisible();
+    await page.getByTestId('bw-phone-collection-menu').tap();
+    await page.getByTestId('bw-phone-action-run').tap();
+    await page.getByTestId('bw-phone-run-start').tap();
+    await expect(page.getByTestId('bw-phone-run-passed')).toHaveText('2 passed', { timeout: 30000 });
+    await expect(page.getByTestId('bw-phone-run-failed')).toHaveText('1 failed');
+    const failed = page.getByTestId('bw-phone-run-row').filter({ hasText: 'two' });
+    await expect(failed).toContainText('expected 200 to equal 404');
+    await failed.tap();
+    await expect(page.getByTestId('bw-phone-run-detail')).toContainText('wrong');
   });
 
   test('turned sideways a phone stays in phone mode; a tablet gets the full interface', async ({ page, server }) => {

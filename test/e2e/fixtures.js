@@ -135,7 +135,7 @@ const startEcho = async () => {
   return { url: `http://127.0.0.1:${port}`, close: () => new Promise((r) => server.close(r)) };
 };
 
-/** Writes a YAML collection with the given requests ({ name, method, url, script? }). */
+/** Writes a YAML collection with the given requests ({ name, method, url, script?, tests? }). */
 const writeCollection = (dir, name, requests) => {
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'opencollection.yml'), `opencollection: "1.0.0"\ninfo:\n  name: ${name}\n`);
@@ -143,7 +143,9 @@ const writeCollection = (dir, name, requests) => {
 };
 
 const writeRequest = (dir, r, seq = 1) => {
-  const script = r.script ? `\nruntime:\n  scripts:\n    - type: before-request\n      code: |-\n${r.script.split('\n').map((l) => `        ${l}`).join('\n')}\n` : '';
+  const block = (type, code) => `    - type: ${type}\n      code: |-\n${code.split('\n').map((l) => `        ${l}`).join('\n')}\n`;
+  const scripts = [r.script && block('before-request', r.script), r.tests && block('tests', r.tests)].filter(Boolean);
+  const script = scripts.length ? `\nruntime:\n  scripts:\n${scripts.join('')}` : '';
   fs.writeFileSync(path.join(dir, `${r.name}.yml`), `info:\n  name: ${r.name}\n  type: http\n  seq: ${seq}\n\nhttp:\n  method: ${r.method || 'GET'}\n  url: ${r.url}\n  body:\n    type: none\n${script}`);
 };
 

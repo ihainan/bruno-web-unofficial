@@ -17,11 +17,22 @@ design and its trade-offs.
 
 ## Phone mode and patches
 
-On a phone (coarse pointer, and 760 px wide or 500 px tall at most) the renderer shows phone mode, `phone/index.js`:
-a request manager built from upstream's own Redux store, actions and components (collections → request → send →
-response, editing with upstream's request pane). `patches/0001-phone-mode.patch` renders it from
-`pages/Bruno/index.js`; anywhere else the app is upstream's. Phone mode has a button to the full interface, where
-`web/mobile.css` and `web/mobile.js` adapt upstream's layout to touch screens.
+On a phone (coarse pointer, and 760 px wide or 500 px tall at most) the renderer shows phone mode, `phone/`:
+a request manager with its own screens (list, request, response, runner, bottom sheets) in the desktop app's look,
+built on upstream's Redux store, thunks, reducers and a few components (CodeEditor, auth forms, response preview).
+`index.js` holds the navigation, `list.js` / `request.js` / `response.js` / `runner.js` the screens, `editors.js`
+the request tabs, `sheets.js` the sheets and menus, `theme.js` the theme variables `phone.css` uses.
+`patches/0001-phone-mode.patch` renders it from `pages/Bruno/index.js`; anywhere else the app is upstream's. Phone
+mode's menus open the full interface, where `web/mobile.css` and `web/mobile.js` adapt upstream's layout to touch
+screens.
+
+- Every file in `phone/` starts with `'use no memo'`. Upstream builds with the React Compiler, which turned
+  `env?.variables` into an unguarded `env.variables` and crashed the page; new files need the same line.
+- The current request is upstream's active tab and every edit goes through upstream's reducers, so drafts,
+  environment and response are the same in both interfaces. Request / response pane tabs are the tab's
+  `requestPaneTab` / `responsePaneTab`.
+- iOS puts the keyboard over the page: `index.js` sizes phone mode to `visualViewport` (`--bw-vv-h`) and sets
+  `html.bw-kb-open`, which hides the bottom bar so the field being edited stays visible.
 
 Patches:
 

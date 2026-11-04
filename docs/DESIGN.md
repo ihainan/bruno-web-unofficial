@@ -266,7 +266,7 @@ invoke 的 `event` 参数：`{ sender: 主窗口.webContents, senderFrame: null,
 - 文件对话框、OAuth 面板、下载提示用 Shadow DOM 渲染，配色读取 Bruno 当前主题（页面根节点 class），不干扰上游样式。
 - CSS 隐藏 Windows/Linux 标题栏上的最小化/最大化/关闭按钮（`AppTitleBar` 在这两个平台会画它们）。
 - `window.isPlaywright` 置 false。
-- **手机模式**：手机（触屏，且宽不超过 760 或横屏时高不超过 500）上显示 `phone/index.js`，一个用上游自己的 Redux store、动作和组件拼出的请求管理器：集合列表（可搜索）→ 请求（环境、方法、地址、发送）→ 响应整屏显示；参数、请求头、请求体等直接用上游的编辑面板；保存、新建请求用上游的动作和弹窗。当前请求就是上游的活动标签，所以随时可以切到完整界面再切回来，草稿和响应都在。`fetch-upstream.sh` 构建前把 `phone/` 复制到上游源码的 `src/bruno-web-phone`，`patches/0001-phone-mode.patch`（11 行）在 `pages/Bruno/index.js` 里接上。桌面上不出现，上游自己的端到端测试（桌面视口）不受影响。完整界面在触屏上仍由 `web/mobile.css`、`web/mobile.js` 适配。
+- **手机模式**：手机（触屏，且宽不超过 760 或横屏时高不超过 500）上显示 `phone/`，一个外观沿用桌面版的请求管理器，自己画界面，数据和操作全部走上游的 Redux store、thunk 和 reducer，代码编辑器、认证表单、响应预览直接用上游组件：最近打开和集合列表（可搜索）→ 请求（环境、方法、地址，点变量看值改值；参数、请求体、请求头、认证、变量、脚本、测试各一个标签）→ 响应（正文、响应头、实际发出的请求、测试结果，搜索和 JSONPath 筛选，复制、分享、存为示例）；另有环境编辑、请求菜单（复制 cURL、生成代码、克隆、重命名、移动、删除）、新建请求和文件夹、批量运行。当前请求就是上游的活动标签，所以随时可以切到完整界面再切回来，草稿和响应都在。`fetch-upstream.sh` 构建前把 `phone/` 复制到上游源码的 `src/bruno-web-phone`，`patches/0001-phone-mode.patch`（11 行）在 `pages/Bruno/index.js` 里接上。桌面上不出现，上游自己的端到端测试（桌面视口）不受影响。完整界面在触屏上仍由 `web/mobile.css`、`web/mobile.js` 适配。
 
 ## 6. 与桌面版的差异（给用户看的）
 
