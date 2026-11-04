@@ -414,7 +414,7 @@ export const ResponseScreen = ({ item, collection, paneTab, setPaneTab, inFlight
       ) : null}
 
       <div className="bw-bottom">
-        <button type="button" className="bw-button bw-primary bw-block" onClick={onSend} disabled={inFlight} data-testid="bw-phone-send-again">Send again</button>
+        <button type="button" className="bw-button bw-outline bw-block" onClick={onSend} disabled={inFlight} data-testid="bw-phone-send-again">Send again</button>
       </div>
     </div>
   );

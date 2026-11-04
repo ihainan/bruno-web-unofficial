@@ -59,12 +59,15 @@ const ago = (at) => {
 
 export const statusTone = (status) => (Number(status) >= 200 && Number(status) < 400 ? 'ok' : 'danger');
 
+// Each level of the tree indents by this much; guides sit under the chevrons.
+const INDENT = 20;
+
 const Guides = ({ depth }) => Array.from({ length: depth }, (_, i) => (
-  <span key={i} className="bw-guide" style={{ left: 23 + i * 24 }} aria-hidden="true" />
+  <span key={i} className="bw-guide" style={{ left: 23 + i * INDENT }} aria-hidden="true" />
 ));
 
 const RequestRow = ({ item, depth, trail, onOpen, extra }) => (
-  <button type="button" className="bw-row bw-request" style={{ paddingLeft: depth ? 40 + (depth - 1) * 24 : 16 }} onClick={() => onOpen(item)} data-testid="bw-phone-request">
+  <button type="button" className="bw-row bw-request" style={{ paddingLeft: depth ? 20 + depth * INDENT : 16 }} onClick={() => onOpen(item)} data-testid="bw-phone-request">
     <Guides depth={depth} />
     <span className={methodClass(methodOf(item))}>{methodOf(item)}</span>
     <span className="bw-name">
@@ -78,7 +81,7 @@ const RequestRow = ({ item, depth, trail, onOpen, extra }) => (
 
 const GroupRow = ({ name, depth, open, onToggle, onMenu, draft, testId, menuLabel }) => (
   <div className="bw-row-wrap">
-    <button type="button" className={`bw-row bw-group${depth ? '' : ' bw-collection'}`} style={{ paddingLeft: 16 + depth * 24 }} onClick={onToggle} aria-expanded={open} data-testid={testId}>
+    <button type="button" className={`bw-row bw-group${depth ? '' : ' bw-collection'}`} style={{ paddingLeft: 16 + depth * INDENT }} onClick={onToggle} aria-expanded={open} data-testid={testId}>
       <Guides depth={depth} />
       <Icon name={open ? 'down' : 'right'} size={16} width={2} className="bw-chevron" />
       <span className="bw-name">{name}</span>

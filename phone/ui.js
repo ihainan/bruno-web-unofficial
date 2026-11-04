@@ -4,7 +4,7 @@
  * desktop editors colour them.
  */
 'use no memo'; // React Compiler mis-memoizes optional chains here (env?.variables read as env.variables).
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import get from 'lodash/get';
 
 const PATHS = {
@@ -67,25 +67,52 @@ export const Header = ({ onBack, backLabel = 'Back', children, actions }) => (
 );
 
 // A row of text tabs, like the desktop request and response panes.
-export const Tabs = ({ tabs, active, onChange, label, testId, trailing }) => (
-  <nav className="bw-tabs" aria-label={label} data-testid={testId}>
-    {tabs.map((t) => (
-      <button
-        key={t.key}
-        type="button"
-        className={`bw-tab${t.key === active ? ' bw-active' : ''}`}
-        aria-current={t.key === active ? 'page' : undefined}
-        onClick={() => onChange(t.key)}
-        data-testid={`bw-tab-${t.key}`}
-      >
-        {t.label}
-        {t.count ? <sup className={t.countTone ? `bw-${t.countTone}` : undefined}>{t.count}</sup> : null}
-        {t.dot ? <span className="bw-tab-dot" aria-label="has content" /> : null}
-      </button>
-    ))}
-    {trailing ? <span className="bw-tabs-trailing">{trailing}</span> : null}
-  </nav>
-);
+// A row that does not fit scrolls sideways: it fades at the edge while more
+// is to the right, and keeps the selected tab in view.
+const useOverflow = (active) => {
+  const ref = useRef(null);
+  const [state, setState] = useState({ overflows: false, atEnd: false });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const update = () => setState({ overflows: el.scrollWidth > el.clientWidth + 1, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 2 });
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    return () => {
+      el.removeEventListener('scroll', update);
+      window.removeEventListener('resize', update);
+    };
+  }, []);
+  useEffect(() => {
+    const tab = ref.current && ref.current.querySelector('.bw-active');
+    if (tab && tab.scrollIntoView) tab.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [active]);
+  return [ref, state];
+};
+
+export const Tabs = ({ tabs, active, onChange, label, testId, trailing }) => {
+  const [ref, { overflows, atEnd }] = useOverflow(active);
+  return (
+    <nav ref={ref} className={`bw-tabs${overflows ? ' bw-overflows' : ''}${atEnd ? ' bw-at-end' : ''}`} aria-label={label} data-testid={testId}>
+      {tabs.map((t) => (
+        <button
+          key={t.key}
+          type="button"
+          className={`bw-tab${t.key === active ? ' bw-active' : ''}`}
+          aria-current={t.key === active ? 'page' : undefined}
+          onClick={() => onChange(t.key)}
+          data-testid={`bw-tab-${t.key}`}
+        >
+          {t.label}
+          {t.count ? <sup className={t.countTone ? `bw-${t.countTone}` : undefined}>{t.count}</sup> : null}
+          {t.dot ? <span className="bw-tab-dot" aria-label="has content" /> : null}
+        </button>
+      ))}
+      {trailing ? <span className="bw-tabs-trailing">{trailing}</span> : null}
+    </nav>
+  );
+};
 
 // A panel that slides up from the bottom over a dimmed screen. Tapping the
 // dimmed part or pressing Escape closes it.
