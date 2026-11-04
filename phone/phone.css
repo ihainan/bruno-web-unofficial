@@ -1,5 +1,11 @@
 /* Phone mode. Colours come from Bruno's theme as --bw-* variables (theme.js);
    sizes follow the desktop app's type scale with touch-sized targets. */
+/* The page itself never scrolls or bounces in phone mode: only the screens'
+   own scroll areas do. */
+html.bw-phone-mode, html.bw-phone-mode body {
+  overflow: hidden;
+  overscroll-behavior: none;
+}
 .bw-phone {
   --bw-mono: Inconsolata, ui-monospace, Menlo, Consolas, monospace;
   position: fixed;

@@ -90,10 +90,19 @@ export const usePhoneMode = () => {
     const vv = window.visualViewport;
     if (!active || !vv) return undefined;
     const root = document.documentElement;
+    // Only while the keyboard is up: otherwise the visual viewport also moves
+    // with Safari's rubber-band bounce, and following it moved the screen
+    // against the finger.
     const update = () => {
-      root.style.setProperty('--bw-vv-h', `${vv.height}px`);
-      root.style.setProperty('--bw-vv-top', `${vv.offsetTop}px`);
-      root.classList.toggle('bw-kb-open', window.innerHeight - vv.height > 120);
+      const keyboard = window.innerHeight - vv.height > 120;
+      root.classList.toggle('bw-kb-open', keyboard);
+      if (keyboard) {
+        root.style.setProperty('--bw-vv-h', `${vv.height}px`);
+        root.style.setProperty('--bw-vv-top', `${Math.max(0, vv.offsetTop)}px`);
+      } else {
+        root.style.removeProperty('--bw-vv-h');
+        root.style.removeProperty('--bw-vv-top');
+      }
     };
     update();
     vv.addEventListener('resize', update);
