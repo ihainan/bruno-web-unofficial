@@ -81,6 +81,7 @@ export const RunnerScreen = ({ collection, folderUid, envName, onBack, onEnv }) 
   const runs = mine ? result.items || [] : [];
   const running = mine && result.info?.status && result.info.status !== 'ended';
   const done = runs.filter((r) => r.status === 'completed' || r.status === 'error');
+  const skipped = runs.filter((r) => r.status === 'skipped');
   const failed = done.filter(failedOf);
   const passed = done.length - failed.length;
   const total = done.reduce((s, r) => s + (Number(r.responseReceived?.duration) || 0), 0);
@@ -111,6 +112,7 @@ export const RunnerScreen = ({ collection, folderUid, envName, onBack, onEnv }) 
               <span className="bw-ok bw-strong bw-big" data-testid="bw-phone-run-passed">{passed} passed</span>
               {failed.length ? <span className="bw-danger bw-strong bw-big" data-testid="bw-phone-run-failed">{failed.length} failed</span> : null}
               <span className="bw-grow" />
+              {skipped.length ? <span className="bw-muted bw-small">{skipped.length} skipped</span> : null}
               <span className="bw-muted bw-small">{runs.length} requests{total ? ` · ${(total / 1000).toFixed(1)} s` : ''}</span>
             </div>
             <div className="bw-progress" aria-hidden="true">
@@ -128,12 +130,13 @@ export const RunnerScreen = ({ collection, folderUid, envName, onBack, onEnv }) 
           <div className="bw-scroll">
             {shown.map((r) => {
               const item = findItemInCollection(collection, r.uid);
-              const settled = r.status === 'completed' || r.status === 'error';
-              const bad = settled && failedOf(r);
+              const skip = r.status === 'skipped';
+              const settled = r.status === 'completed' || r.status === 'error' || skip;
+              const bad = settled && !skip && failedOf(r);
               return (
                 <button type="button" key={`${r.uid}-${r.requestUid || ''}`} className="bw-run-row" onClick={() => settled && setDetail(r)} data-testid="bw-phone-run-row">
-                  <span className={settled ? (bad ? 'bw-danger' : 'bw-ok') : 'bw-subtle'}>
-                    {settled ? <Icon name={bad ? 'fail' : 'pass'} width={2} /> : <span className="bw-spinner bw-spinner-small" />}
+                  <span className={skip || !settled ? 'bw-subtle' : bad ? 'bw-danger' : 'bw-ok'}>
+                    {skip ? <Icon name="right" width={2} /> : settled ? <Icon name={bad ? 'fail' : 'pass'} width={2} /> : <span className="bw-spinner bw-spinner-small" />}
                   </span>
                   <span className="bw-grow">
                     <span className="bw-run-line">
@@ -143,6 +146,7 @@ export const RunnerScreen = ({ collection, folderUid, envName, onBack, onEnv }) 
                       <span className="bw-subtle bw-small bw-time">{r.responseReceived?.duration != null ? `${r.responseReceived.duration} ms` : r.status === 'skipped' ? 'skipped' : ''}</span>
                     </span>
                     {bad && firstError(r) ? <span className="bw-mono bw-danger bw-small bw-run-error">{firstError(r)}</span> : null}
+                    {skip && r.error ? <span className="bw-muted bw-small bw-run-error">{r.error}</span> : null}
                   </span>
                 </button>
               );

@@ -164,8 +164,13 @@ export const KeyValueTable = ({ rows, onChange, variables, onVariable, addLabel,
               type="button"
               className="bw-text-button bw-brand-text"
               onClick={() => {
-                const old = new Map(rows.map((r) => [r.name, r]));
-                onChange(parseBulkKeyValue(bulkText).map((r) => ({ ...(old.get(r.name) || {}), uid: old.get(r.name)?.uid || uuid(), ...r })));
+                // Rows with the same name (tag=a&tag=b) keep their own uids, in order.
+                const old = new Map();
+                rows.forEach((r) => old.set(r.name, [...(old.get(r.name) || []), r]));
+                onChange(parseBulkKeyValue(bulkText).map((r) => {
+                  const prev = (old.get(r.name) || []).shift();
+                  return { ...(prev || {}), ...r, uid: prev ? prev.uid : uuid() };
+                }));
                 setBulkText(null);
               }}
               data-testid={`${testId}-bulk-done`}
@@ -391,10 +396,10 @@ const BodyTab = ({ item, collection, variables, onVariable }) => {
     return (
       <div className="bw-scroll bw-pad bw-stack">
         <Section title="Query">
-          <Code value={gql.query} onEdit={(query) => dispatch(updateRequestGraphqlQuery({ ...ids, query }))} mode="graphql" item={item} collection={collection} docKey="bw-phone:gql-query" testId="bw-phone-gql-query" />
+          <Code value={gql.query} onEdit={(query) => dispatch(updateRequestGraphqlQuery({ ...ids, query }))} mode="graphql" item={item} collection={collection} docKey={`bw-phone:${item.uid}:gql-query`} testId="bw-phone-gql-query" />
         </Section>
         <Section title="Variables">
-          <Code value={gql.variables} onEdit={(variables) => dispatch(updateRequestGraphqlVariables({ ...ids, variables }))} mode="application/ld+json" item={item} collection={collection} docKey="bw-phone:gql-vars" />
+          <Code value={gql.variables} onEdit={(variables) => dispatch(updateRequestGraphqlVariables({ ...ids, variables }))} mode="application/ld+json" item={item} collection={collection} docKey={`bw-phone:${item.uid}:gql-vars`} />
         </Section>
       </div>
     );
@@ -424,7 +429,7 @@ const BodyTab = ({ item, collection, variables, onVariable }) => {
             mode={CODE_MODES[mode]}
             item={item}
             collection={collection}
-            docKey={`bw-phone:body-${mode}`}
+            docKey={`bw-phone:${item.uid}:body-${mode}`}
             testId="bw-phone-body-editor"
           />
         </div>
@@ -565,7 +570,7 @@ const ScriptTab = ({ item, collection, which, setWhich }) => {
           item={item}
           collection={collection}
           hints={pre ? ['req', 'bru'] : ['req', 'res', 'bru']}
-          docKey={pre ? 'bw-phone:script-pre' : 'bw-phone:script-post'}
+          docKey={`bw-phone:${item.uid}:script-${pre ? 'pre' : 'post'}`}
           testId="bw-phone-script-editor"
         />
       </div>
@@ -588,7 +593,7 @@ const TestsTab = ({ item, collection }) => {
           item={item}
           collection={collection}
           hints={['req', 'res', 'bru']}
-          docKey="bw-phone:tests"
+          docKey={`bw-phone:${item.uid}:tests`}
           testId="bw-phone-tests-editor"
         />
       </div>
@@ -602,21 +607,34 @@ export const requestTabs = (item) => {
   const enabled = (rows) => (rows || []).filter((r) => r.enabled).length || null;
   const gql = item.type === 'graphql-request';
   const mode = request.body?.mode;
+  // The keys are the desktop panes' own (HttpRequestPane, GraphQLRequestPane):
+  // the tab is shared with the full interface.
+  if (gql) {
+    return [
+      { key: 'query', label: 'Query', dot: !!request.body?.graphql?.query },
+      ...restTabs(request, enabled)
+    ];
+  }
   return [
     { key: 'params', label: 'Params', count: enabled(request.params) },
-    { key: 'body', label: gql ? 'Query' : 'Body', dot: gql ? !!request.body?.graphql?.query : mode && mode !== 'none' },
-    { key: 'headers', label: 'Headers', count: enabled(request.headers) },
-    { key: 'auth', label: 'Auth', dot: !!request.auth?.mode && !['none', 'inherit'].includes(request.auth.mode) },
-    { key: 'vars', label: 'Vars', count: (enabled(request.vars?.req) || 0) + (enabled(request.vars?.res) || 0) || null },
-    { key: 'script', label: 'Script', dot: !!(request.script?.req || request.script?.res) },
-    { key: 'tests', label: 'Tests', dot: !!request.tests }
+    { key: 'body', label: 'Body', dot: mode && mode !== 'none' },
+    ...restTabs(request, enabled)
   ];
 };
+
+const restTabs = (request, enabled) => [
+  { key: 'headers', label: 'Headers', count: enabled(request.headers) },
+  { key: 'auth', label: 'Auth', dot: !!request.auth?.mode && !['none', 'inherit'].includes(request.auth.mode) },
+  { key: 'vars', label: 'Vars', count: (enabled(request.vars?.req) || 0) + (enabled(request.vars?.res) || 0) || null },
+  { key: 'script', label: 'Script', dot: !!(request.script?.req || request.script?.res) },
+  { key: 'tests', label: 'Tests', dot: !!request.tests }
+];
 
 export const RequestEditor = ({ tab, ...props }) => {
   const [which, setWhich] = useState('pre');
   switch (tab) {
-    case 'body': return <BodyTab {...props} />;
+    case 'body':
+    case 'query': return <BodyTab {...props} />;
     case 'headers': return <HeadersTab {...props} />;
     case 'auth': return <AuthTab {...props} />;
     case 'vars': return <VarsTab {...props} />;

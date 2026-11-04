@@ -130,7 +130,7 @@ const BodyView = ({ item, collection, find, filter }) => {
             codeMirrorMode={MODES[format] || 'text/plain'}
             collection={collection}
             displayedTheme={displayedTheme}
-            docKey="bw-phone:response-preview"
+            docKey={`bw-phone:${item.uid}:response-preview`}
           />
         </div>
       ) : (
@@ -147,7 +147,7 @@ const BodyView = ({ item, collection, find, filter }) => {
             item={item}
             enableLineWrapping
             enableBrunoVarInfo={false}
-            docKey="bw-phone:response"
+            docKey={`bw-phone:${item.uid}:response`}
           />
         </div>
       )}

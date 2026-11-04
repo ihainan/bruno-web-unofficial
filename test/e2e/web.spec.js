@@ -575,6 +575,7 @@ test.describe('on a phone', () => {
     const dir = path.join(srv.workspace, 'phone');
     writeCollection(dir, 'phone', [{ name: 'with-vars', url: "'{{host}}/env?t={{token}}'" }]);
     writeEnv(dir, 'dev', [['host', echo.url], ['token', 'first']]);
+    writeEnv(dir, 'prod', [['host', echo.url], ['token', 'prod-token']]);
     addToWorkspace(srv, 'phone');
     await openApp(page, srv);
     await openPhoneRequest(page, 'phone', 'with-vars');
@@ -602,6 +603,20 @@ test.describe('on a phone', () => {
     await expect(page.getByTestId('bw-phone-env-unsaved')).toBeVisible();
     await page.getByTestId('bw-phone-env-save').tap();
     await expect(page.getByTestId('bw-phone-env-unsaved')).toHaveCount(0);
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'environments', 'dev.yml'), 'utf8')).toContain('third');
+
+    // An unsaved change to one environment is not lost by switching to another:
+    // it has to be saved or dropped before the other can be edited.
+    await values.nth(1).fill('fourth');
+    await page.getByTestId('bw-phone-env-choice').filter({ hasText: 'prod' }).tap();
+    await expect(page.getByTestId('bw-phone-env-other-draft')).toContainText('dev');
+    await expect(page.getByTestId('bw-phone-env-var-value')).toHaveCount(0);
+    await page.getByTestId('bw-phone-env-other-draft').getByRole('button', { name: 'Save' }).tap();
+    await expect.poll(() => fs.readFileSync(path.join(dir, 'environments', 'dev.yml'), 'utf8')).toContain('fourth');
+    await expect(page.getByTestId('bw-phone-env-var-value').nth(1)).toHaveValue('prod-token');
+    await page.getByTestId('bw-phone-env-choice').filter({ hasText: 'dev' }).tap();
+    await values.nth(1).fill('third');
+    await page.getByTestId('bw-phone-env-save').tap();
     await expect.poll(() => fs.readFileSync(path.join(dir, 'environments', 'dev.yml'), 'utf8')).toContain('third');
     await page.keyboard.press('Escape');
 
@@ -725,9 +740,14 @@ test.describe('on a phone', () => {
 
     // Params in bulk become the URL's query.
     await page.getByTestId('bw-phone-params-bulk').tap();
-    await page.getByTestId('bw-phone-params-bulk-text').fill('a:1\n//b:2\nc:{{who}}');
+    await page.getByTestId('bw-phone-params-bulk-text').fill('a:1\n//b:2\nc:{{who}}\ntag:x\ntag:y');
     await page.getByTestId('bw-phone-params-bulk-done').tap();
-    await expect(urlView(page)).toHaveText(`${echo.url}/edit?a=1&c={{who}}`);
+    await expect(urlView(page)).toHaveText(`${echo.url}/edit?a=1&c={{who}}&tag=x&tag=y`);
+    // Rows with the same name stay separate rows after another bulk edit.
+    await page.getByTestId('bw-phone-params-bulk').tap();
+    await page.getByTestId('bw-phone-params-bulk-done').tap();
+    await page.getByTestId('bw-phone-params-row').filter({ hasText: 'tag' }).last().getByRole('checkbox').uncheck();
+    await expect(urlView(page)).toHaveText(`${echo.url}/edit?a=1&c={{who}}&tag=x`);
 
     // A header.
     await page.getByTestId('bw-tab-headers').tap();
@@ -766,7 +786,7 @@ test.describe('on a phone', () => {
 
     await sendAndWait(page);
     const sent = JSON.parse(await bodyText(page));
-    expect(sent.url).toBe('/edit?a=1&c=me');
+    expect(sent.url).toBe('/edit?a=1&c=me&tag=x');
     expect(sent.headers['x-phone']).toBe('yes');
     expect(sent.headers.authorization).toBe('Bearer tok-123');
     expect(sent.headers['x-script']).toBe('ran');
@@ -777,13 +797,37 @@ test.describe('on a phone', () => {
     await expect.poll(() => fs.readFileSync(path.join(dir, 'edited.yml'), 'utf8')).toContain('X-Phone');
   });
 
+  test('phone mode: a GraphQL request has the desktop pane\'s tabs, so the full interface shows the same one', async ({ page, server, echo }) => {
+    const srv = await server();
+    const dir = path.join(srv.workspace, 'phone');
+    writeCollection(dir, 'phone', [{ name: 'plain', url: `${echo.url}/plain` }]);
+    addToWorkspace(srv, 'phone');
+    await openApp(page, srv);
+    await phoneCollection(page, 'phone').tap();
+    await page.getByTestId('bw-phone-new-request').tap();
+    await page.getByRole('radio', { name: 'GraphQL' }).tap();
+    await page.getByTestId('bw-phone-new-name').fill('gql');
+    await page.getByTestId('bw-phone-new-url').fill(`${echo.url}/graphql`);
+    await page.getByTestId('bw-phone-new-create').tap();
+    await expect(title(page)).toHaveText('gql');
+    const tabs = page.getByTestId('bw-phone-request-tabs');
+    await expect(tabs.getByTestId('bw-tab-query')).toBeVisible();
+    await expect(tabs.getByTestId('bw-tab-params')).toHaveCount(0);
+    await tabs.getByTestId('bw-tab-headers').tap();
+    await tabs.getByTestId('bw-tab-query').tap();
+    await fullInterface(page);
+    await expect(page.getByText('Not found')).toHaveCount(0);
+    await expect(page.locator('.request-tab').filter({ hasText: 'gql' })).toBeVisible();
+  });
+
   test('phone mode: run a whole collection and see which requests failed', async ({ page, server, echo }) => {
     const srv = await server();
     const dir = path.join(srv.workspace, 'phone');
     writeCollection(dir, 'phone', [
       { name: 'one', url: `${echo.url}/one`, tests: 'test("ok", () => expect(res.getStatus()).to.equal(200));' },
       { name: 'two', url: `${echo.url}/two`, tests: 'test("wrong", () => expect(res.getStatus()).to.equal(404));' },
-      { name: 'three', url: `${echo.url}/three` }
+      { name: 'three', url: `${echo.url}/three` },
+      { name: 'four', url: `${echo.url}/four`, script: 'bru.runner.skipRequest();' }
     ]);
     addToWorkspace(srv, 'phone');
     await openApp(page, srv);
@@ -794,6 +838,8 @@ test.describe('on a phone', () => {
     await page.getByTestId('bw-phone-run-start').tap();
     await expect(page.getByTestId('bw-phone-run-passed')).toHaveText('2 passed', { timeout: 30000 });
     await expect(page.getByTestId('bw-phone-run-failed')).toHaveText('1 failed');
+    await expect(page.getByTestId('bw-phone-runner')).toContainText('1 skipped');
+    await expect(page.getByTestId('bw-phone-run-row').filter({ hasText: 'four' }).locator('.bw-spinner')).toHaveCount(0);
     const failed = page.getByTestId('bw-phone-run-row').filter({ hasText: 'two' });
     await expect(failed).toContainText('expected 200 to equal 404');
     await failed.tap();

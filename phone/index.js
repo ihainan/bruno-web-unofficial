@@ -346,11 +346,13 @@ export default function BrunoWebPhone({ phone }) {
           folderUid={runner.folderUid}
           envName={runnerEnvName}
           onBack={() => setScreen('list')}
-          onEnv={() => setSheet({ type: 'env', collection: runnerCollection })}
+          onEnv={() => setSheet({ type: 'env', collectionUid: runnerCollection.uid })}
         />
       ) : null}
 
-      {sheet?.type === 'env' && (sheet.collection || collection) ? <EnvSheet collection={sheet.collection || collection} onClose={closeSheet} /> : null}
+      {sheet?.type === 'env' && (sheet.collectionUid ? allCollections.find((c) => c.uid === sheet.collectionUid) : collection) ? (
+        <EnvSheet collection={sheet.collectionUid ? allCollections.find((c) => c.uid === sheet.collectionUid) : collection} onClose={closeSheet} />
+      ) : null}
       {sheet?.type === 'var' && item ? (
         <VarPeek name={sheet.name} anchor={sheet.anchor} collection={collection} item={item} onClose={closeSheet} onOpenEnv={() => setSheet({ type: 'env' })} />
       ) : null}

@@ -914,6 +914,16 @@ html.bw-kb-open .bw-phone .bw-url.bw-editing + .bw-tabs { display: none; }
 .bw-choice.bw-active { background: var(--bw-surface0); }
 .bw-choice.bw-active svg:last-child { color: var(--bw-brand-text); }
 .bw-draft-text { margin-left: auto; font-size: 12px; color: var(--bw-draft); }
+.bw-notice {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin: 12px 16px 0;
+  padding: 2px 4px 2px 12px;
+  border: 1px solid var(--bw-draft);
+  border-radius: 6px;
+  font-size: 13px;
+}
 .bw-env-var { padding: 6px 0 10px; border-bottom: 1px solid var(--bw-border-faint); }
 .bw-env-var-head { display: flex; align-items: center; gap: 6px; }
 .bw-env-name {

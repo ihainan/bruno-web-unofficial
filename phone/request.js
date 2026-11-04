@@ -105,7 +105,7 @@ export const RequestScreen = ({ item, collection, paneTab, setPaneTab, variables
   const unreadable = item.partial || item.loading;
   const supported = item.type === 'http-request' || item.type === 'graphql-request';
   const tabs = supported && !unreadable ? requestTabs(item) : [];
-  const tab = tabs.some((t) => t.key === paneTab) ? paneTab : 'params';
+  const tab = tabs.some((t) => t.key === paneTab) ? paneTab : tabs[0]?.key;
   return (
     <div className="bw-screen bw-request-screen" data-testid="bw-phone-request-screen">
       <Header
