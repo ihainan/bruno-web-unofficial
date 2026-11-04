@@ -118,7 +118,8 @@ export const RunnerScreen = ({ collection, folderUid, envName, onBack, onEnv }) 
             <div className="bw-progress" aria-hidden="true">
               <span className="bw-ok-bg" style={{ flex: passed }} />
               <span className="bw-danger-bg" style={{ flex: failed.length }} />
-              <span className="bw-pending-bg" style={{ flex: runs.length - done.length }} />
+              <span className="bw-skipped-bg" style={{ flex: skipped.length }} />
+              <span className="bw-pending-bg" style={{ flex: runs.length - done.length - skipped.length }} />
             </div>
           </div>
           <Tabs

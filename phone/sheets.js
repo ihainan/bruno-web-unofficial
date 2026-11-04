@@ -106,13 +106,28 @@ const VariableRows = ({ variables, onChange, testId }) => {
 // Upstream keeps one environment draft per collection (and one for the global
 // environments): a draft for another environment is saved or dropped first,
 // or editing this one would overwrite it.
-const OtherDraft = ({ name, onSave, onDiscard }) => (
-  <div className="bw-notice" role="status" data-testid="bw-phone-env-other-draft">
-    <span className="bw-grow">Unsaved changes in {name}.</span>
-    <button type="button" className="bw-text-button" onClick={onDiscard}>Discard</button>
-    <button type="button" className="bw-text-button bw-brand-text bw-strong" onClick={onSave}>Save</button>
-  </div>
-);
+// A draft whose uid starts with "dotenv:" is an unsaved .env file (upstream's
+// RequestTab saves those its own way): it can only be dropped here.
+const OtherDraft = ({ draft, name, onSave, onDiscard, onFull }) => {
+  const dotenv = String(draft.environmentUid).startsWith('dotenv:');
+  return (
+    <div className="bw-notice" role="status" data-testid="bw-phone-env-other-draft">
+      <span className="bw-grow">{dotenv ? 'Unsaved changes to a .env file.' : `Unsaved changes in ${name}.`}</span>
+      <button type="button" className="bw-text-button" onClick={onDiscard}>Discard</button>
+      {dotenv ? (
+        onFull ? <button type="button" className="bw-text-button bw-brand-text bw-strong" onClick={onFull}>Open</button> : null
+      ) : (
+        <button type="button" className="bw-text-button bw-brand-text bw-strong" onClick={onSave}>Save</button>
+      )}
+    </div>
+  );
+};
+
+// Clears a draft after it was saved, unless it changed while saving (the
+// saved copy is then older than what is on the screen).
+const clearIfUnchanged = (read, saved, clear) => (dispatch, getState) => {
+  if (read(getState()) === saved) dispatch(clear);
+};
 
 const EnvChoice = ({ name, active, onPick, testId }) => (
   <button type="button" role="radio" aria-checked={active} className={`bw-choice${active ? ' bw-active' : ''}`} onClick={onPick} data-testid={testId}>
@@ -121,7 +136,7 @@ const EnvChoice = ({ name, active, onPick, testId }) => (
   </button>
 );
 
-const GlobalEnvView = ({ onBack }) => {
+const GlobalEnvView = ({ onBack, onFull }) => {
   const dispatch = useDispatch();
   const { globalEnvironments, activeGlobalEnvironmentUid, globalEnvironmentDraft } = useSelector((state) => state.globalEnvironments);
   const env = globalEnvironments.find((e) => e.uid === activeGlobalEnvironmentUid);
@@ -129,12 +144,14 @@ const GlobalEnvView = ({ onBack }) => {
   const variables = draft || env?.variables || [];
   const other = globalEnvironmentDraft && globalEnvironmentDraft.environmentUid !== env?.uid ? globalEnvironmentDraft : null;
   const otherName = other ? (globalEnvironments.find((e) => e.uid === other.environmentUid) || {}).name : '';
+  const readDraft = (state) => state.globalEnvironments.globalEnvironmentDraft;
   const saveOther = () => dispatch(saveGlobalEnvironment({ variables: cloneDeep(other.variables), environmentUid: other.environmentUid }))
-    .then(() => dispatch(clearGlobalEnvironmentDraft()))
+    .then(() => dispatch(clearIfUnchanged(readDraft, other, clearGlobalEnvironmentDraft())))
     .catch((e) => toast.error(e?.message || 'Could not save'));
+  const saving = globalEnvironmentDraft;
   const save = () => dispatch(saveGlobalEnvironment({ variables: cloneDeep(variables), environmentUid: env.uid }))
     .then(() => {
-      dispatch(clearGlobalEnvironmentDraft());
+      dispatch(clearIfUnchanged(readDraft, saving, clearGlobalEnvironmentDraft()));
       toast.success('Saved');
     })
     .catch((e) => toast.error(e?.message || 'Could not save'));
@@ -150,7 +167,7 @@ const GlobalEnvView = ({ onBack }) => {
           <EnvChoice key={e.uid} name={e.name} active={e.uid === activeGlobalEnvironmentUid} onPick={() => dispatch(selectGlobalEnvironment({ environmentUid: e.uid }))} />
         ))}
       </div>
-      {other ? <OtherDraft name={otherName || 'another environment'} onSave={saveOther} onDiscard={() => dispatch(clearGlobalEnvironmentDraft())} /> : null}
+      {other ? <OtherDraft draft={other} name={otherName || 'another environment'} onSave={saveOther} onDiscard={() => dispatch(clearGlobalEnvironmentDraft())} onFull={onFull} /> : null}
       {env && !other ? (
         <>
           <h3 className="bw-label bw-pad-x">{env.name} variables{draft ? <span className="bw-draft-text">Unsaved changes</span> : null}</h3>
@@ -163,7 +180,7 @@ const GlobalEnvView = ({ onBack }) => {
   );
 };
 
-export const EnvSheet = ({ collection, onClose }) => {
+export const EnvSheet = ({ collection, onClose, onFull }) => {
   const dispatch = useDispatch();
   const [view, setView] = useState('collection');
   const { globalEnvironments, activeGlobalEnvironmentUid } = useSelector((state) => state.globalEnvironments);
@@ -174,12 +191,14 @@ export const EnvSheet = ({ collection, onClose }) => {
   const globalEnv = globalEnvironments.find((e) => e.uid === activeGlobalEnvironmentUid);
   const other = collection.environmentsDraft && collection.environmentsDraft.environmentUid !== env?.uid ? collection.environmentsDraft : null;
   const otherName = other ? (envs.find((e) => e.uid === other.environmentUid) || {}).name : '';
+  const readDraft = (state) => (state.collections.collections.find((c) => c.uid === collection.uid) || {}).environmentsDraft;
   const saveOther = () => dispatch(saveEnvironment(cloneDeep(other.variables), other.environmentUid, collection.uid))
-    .then(() => dispatch(clearEnvironmentsDraft({ collectionUid: collection.uid })))
+    .then(() => dispatch(clearIfUnchanged(readDraft, other, clearEnvironmentsDraft({ collectionUid: collection.uid }))))
     .catch((e) => toast.error(e?.message || 'Could not save'));
+  const saving = collection.environmentsDraft;
   const save = () => dispatch(saveEnvironment(cloneDeep(variables), env.uid, collection.uid))
     .then(() => {
-      dispatch(clearEnvironmentsDraft({ collectionUid: collection.uid }));
+      dispatch(clearIfUnchanged(readDraft, saving, clearEnvironmentsDraft({ collectionUid: collection.uid })));
       toast.success('Saved');
     })
     .catch((e) => toast.error(e?.message || 'Could not save'));
@@ -192,7 +211,7 @@ export const EnvSheet = ({ collection, onClose }) => {
       left={<TextButton onClick={onClose}>Close</TextButton>}
       right={view === 'collection' && draft ? <TextButton brand onClick={save} testId="bw-phone-env-save">Save</TextButton> : null}
     >
-      {view === 'global' ? <GlobalEnvView onBack={() => setView('collection')} /> : (
+      {view === 'global' ? <GlobalEnvView onBack={() => setView('collection')} onFull={onFull} /> : (
         <>
           <div role="radiogroup" aria-label="Environment" className="bw-choices">
             <EnvChoice name="No Environment" active={!env} onPick={() => dispatch(selectEnvironment(null, collection.uid))} testId="bw-phone-env-none" />
@@ -201,7 +220,7 @@ export const EnvSheet = ({ collection, onClose }) => {
             ))}
           </div>
           {envs.length === 0 ? <Empty>This collection has no environments. Create one in the full interface.</Empty> : null}
-          {other ? <OtherDraft name={otherName || 'another environment'} onSave={saveOther} onDiscard={() => dispatch(clearEnvironmentsDraft({ collectionUid: collection.uid }))} /> : null}
+          {other ? <OtherDraft draft={other} name={otherName || 'another environment'} onSave={saveOther} onDiscard={() => dispatch(clearEnvironmentsDraft({ collectionUid: collection.uid }))} onFull={onFull} /> : null}
           {env && !other ? (
             <>
               <h3 className="bw-label bw-pad-x">
@@ -269,7 +288,7 @@ export const VarPeek = ({ name, anchor, collection, item, onClose, onOpenEnv }) 
         <span className="bw-popover-arrow" style={{ left: arrow }} aria-hidden="true" />
         <div className="bw-between">
           <span className="bw-mono bw-strong">{name}</span>
-          {where ? <span className="bw-muted bw-small">{where}{scope?.inheritedFrom ? `, inherited from ${scope.inheritedFrom}` : ''}</span> : null}
+          {where ? <span className="bw-muted bw-small">{where}{scope?.inheritedFrom ? `, inherited from ${scope.inheritedFrom.name || 'a parent environment'}` : ''}</span> : null}
         </div>
         {name.startsWith('?') ? <p className="bw-hint-text">You are asked for this value each time you send.</p> : null}
         {!name.startsWith('?') && value === undefined ? (

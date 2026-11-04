@@ -810,6 +810,14 @@ test.describe('on a phone', () => {
     await page.getByTestId('bw-phone-new-url').fill(`${echo.url}/graphql`);
     await page.getByTestId('bw-phone-new-create').tap();
     await expect(title(page)).toHaveText('gql');
+    // Opened from the list and straight to the full interface: its own pane, not Not found.
+    await page.getByTestId('bw-phone-back').tap();
+    await phoneRequest(page, 'plain').tap();
+    await page.getByTestId('bw-phone-back').tap();
+    await phoneRequest(page, 'gql').tap();
+    await fullInterface(page);
+    await expect(page.getByText('Not found')).toHaveCount(0);
+    await page.getByTestId('bw-phone-switch').tap();
     const tabs = page.getByTestId('bw-phone-request-tabs');
     await expect(tabs.getByTestId('bw-tab-query')).toBeVisible();
     await expect(tabs.getByTestId('bw-tab-params')).toHaveCount(0);

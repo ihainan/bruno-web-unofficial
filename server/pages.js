@@ -131,7 +131,7 @@ const page = (title, body) => `<!doctype html>
 <title>${escapeHtml(title)}</title>
 ${ICON_LINKS}
 <style>
-  :root { color-scheme: light dark; --bg: #f8f8f8; --card: #ffffff; --fg: #343434; --muted: #838383; --border: #e5e5e5; --input: #cccccc; --focus: #8b8b8b; --brand: hsl(33, 80%, 46%); --on-brand: #ffffff; --ring: hsla(33, 80%, 46%, 0.18); --error: hsl(8, 60%, 52%); --shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+  :root { color-scheme: light dark; --bg: #f8f8f8; --card: #ffffff; --fg: #343434; --muted: #666666; --border: #e5e5e5; --input: #cccccc; --focus: #8b8b8b; --brand: hsl(33, 80%, 46%); --on-brand: #ffffff; --ring: hsla(33, 80%, 46%, 0.18); --error: hsl(8, 60%, 52%); --shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
   @media (prefers-color-scheme: dark) { :root { --bg: #1a1a1a; --card: #222224; --fg: #cccccc; --muted: #999999; --border: #333333; --input: #444444; --focus: #666666; --brand: hsl(39, 74%, 59%); --on-brand: #000000; --ring: hsla(39, 74%, 59%, 0.2); --error: hsl(8, 70%, 60%); --shadow: none; } }
   * { box-sizing: border-box; }
   html { -webkit-text-size-adjust: 100%; }
@@ -212,7 +212,9 @@ const loginPage = (error) => page('Bruno', `
   document.querySelector('form').addEventListener('submit', function () {
     var b = document.getElementById('submit');
     // Disabled after this event, so the form still submits; a second tap does nothing.
+    // A stopped navigation (Escape, the stop button) fires no event, so it re-enables itself.
     setTimeout(function () { b.disabled = true; b.textContent = text.busy; }, 0);
+    setTimeout(function () { b.disabled = false; b.textContent = zh ? '登录' : 'Sign in'; }, 8000);
   });
   // Coming back with the browser's back button restores a disabled button.
   window.addEventListener('pageshow', function () { var b = document.getElementById('submit'); b.disabled = false; b.textContent = zh ? '登录' : 'Sign in'; });

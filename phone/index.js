@@ -20,6 +20,7 @@ import { sendRequest, saveRequest, cancelRequest, mountCollection } from 'provid
 import {
   findItemInCollection,
   getAllVariables,
+  getDefaultRequestPaneTab,
   getGlobalEnvironmentVariables,
   getGlobalEnvironmentVariablesMasked,
   getWorkspaceCollections,
@@ -207,7 +208,7 @@ export default function BrunoWebPhone({ phone }) {
 
   const open = (c, it) => {
     lastTab.current = it.uid;
-    dispatch(addTab({ uid: it.uid, collectionUid: c.uid, type: 'request', requestPaneTab: 'params', preview: true }));
+    dispatch(addTab({ uid: it.uid, collectionUid: c.uid, type: 'request', requestPaneTab: getDefaultRequestPaneTab(it), preview: true }));
     setRecent(rememberRecent(c.uid, it.uid));
     setScreen('request');
   };
@@ -351,7 +352,7 @@ export default function BrunoWebPhone({ phone }) {
       ) : null}
 
       {sheet?.type === 'env' && (sheet.collectionUid ? allCollections.find((c) => c.uid === sheet.collectionUid) : collection) ? (
-        <EnvSheet collection={sheet.collectionUid ? allCollections.find((c) => c.uid === sheet.collectionUid) : collection} onClose={closeSheet} />
+        <EnvSheet collection={sheet.collectionUid ? allCollections.find((c) => c.uid === sheet.collectionUid) : collection} onClose={closeSheet} onFull={phone.showFull} />
       ) : null}
       {sheet?.type === 'var' && item ? (
         <VarPeek name={sheet.name} anchor={sheet.anchor} collection={collection} item={item} onClose={closeSheet} onOpenEnv={() => setSheet({ type: 'env' })} />

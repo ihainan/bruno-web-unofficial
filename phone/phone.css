@@ -1055,6 +1055,7 @@ html.bw-kb-open .bw-phone .bw-url.bw-editing + .bw-tabs { display: none; }
 .bw-ok-bg { background: var(--bw-ok); }
 .bw-danger-bg { background: var(--bw-danger); }
 .bw-pending-bg { background: var(--bw-border); }
+.bw-skipped-bg { background: var(--bw-subtle); }
 .bw-run-row {
   width: 100%;
   display: flex;
@@ -1074,6 +1075,8 @@ html.bw-kb-open .bw-phone .bw-url.bw-editing + .bw-tabs { display: none; }
 .bw-landscape-only { display: none; }
 @media (max-height: 500px) {
   .bw-phone { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .bw-sheet { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .bw-popover-layer .bw-popover { left: max(16px, env(safe-area-inset-left)); right: max(16px, env(safe-area-inset-right)); }
   .bw-phone .bw-landscape-only { display: inline-flex; margin-right: 4px; }
   .bw-phone .bw-context { display: none; }
   .bw-phone-header { min-height: 44px; }
