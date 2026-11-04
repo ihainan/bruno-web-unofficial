@@ -113,6 +113,13 @@ export const RequestScreen = ({ item, collection, paneTab, setPaneTab, variables
         backLabel="Back to the list"
         actions={(
           <>
+            {/* In landscape the context row is hidden and the environment moves up here. */}
+            {supported && !unreadable ? (
+              <button type="button" className="bw-pill bw-landscape-only" onClick={onEnv} data-testid="bw-phone-env-landscape">
+                {envName || 'No Environment'}
+                <Icon name="down" size={12} width={2.25} />
+              </button>
+            ) : null}
             {item.draft ? <IconButton icon="save" label="Save (unsaved changes)" onClick={onSave} dot testId="bw-phone-save" /> : null}
             <IconButton icon="more" label="More" onClick={onMenu} testId="bw-phone-menu" />
           </>

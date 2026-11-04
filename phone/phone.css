@@ -1070,6 +1070,23 @@ html.bw-kb-open .bw-phone .bw-url.bw-editing + .bw-tabs { display: none; }
 .bw-time { width: 52px; text-align: right; }
 .bw-run-error { display: block; margin: 4px 0 0 56px; line-height: 18px; overflow-wrap: anywhere; }
 
+/* ------------------------------------------------------------- landscape */
+.bw-landscape-only { display: none; }
+@media (max-height: 500px) {
+  .bw-phone { padding-left: env(safe-area-inset-left); padding-right: env(safe-area-inset-right); }
+  .bw-phone .bw-landscape-only { display: inline-flex; margin-right: 4px; }
+  .bw-phone .bw-context { display: none; }
+  .bw-phone-header { min-height: 44px; }
+  .bw-url { margin-top: 6px; padding: 4px 12px; }
+  .bw-url textarea { min-height: 48px; }
+  .bw-tabs { margin-top: 2px; }
+  .bw-status-line { padding-top: 8px; }
+  .bw-bottom { display: flex; align-items: center; gap: 16px; padding: 6px 16px calc(6px + env(safe-area-inset-bottom)); }
+  .bw-bottom .bw-last { flex: 1; min-width: 0; margin-top: 0; }
+  .bw-bottom .bw-button { height: 40px; width: auto; min-width: 180px; margin-left: auto; }
+  .bw-run-summary { padding-top: 6px; }
+}
+
 /* ------------------------------------------- full interface: back to phone */
 .bw-phone-switch {
   position: fixed;
