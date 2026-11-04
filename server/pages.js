@@ -119,49 +119,103 @@ const injectGuestBootstrap = (html) => {
   return `${GUEST_BOOTSTRAP}${doc}`;
 };
 
+// Bruno's own palette (themes/light and themes/dark in the renderer), so the
+// sign-in page looks like the app it opens.
 const page = (title, body) => `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f8f8f8" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1a1a" media="(prefers-color-scheme: dark)">
 <title>${escapeHtml(title)}</title>
 ${ICON_LINKS}
 <style>
-  :root { color-scheme: light dark; --bg: #f7f7f8; --card: #ffffff; --fg: #1f2328; --muted: #656d76; --border: #d0d7de; --accent: #e5a50a; --accent-fg: #1f2328; --error: #cf222e; }
-  @media (prefers-color-scheme: dark) { :root { --bg: #1e1e1e; --card: #252526; --fg: #e6e6e6; --muted: #9da5b4; --border: #3c3c3c; --error: #ff7b72; } }
+  :root { color-scheme: light dark; --bg: #f8f8f8; --card: #ffffff; --fg: #343434; --muted: #838383; --border: #e5e5e5; --input: #cccccc; --focus: #8b8b8b; --brand: hsl(33, 80%, 46%); --on-brand: #ffffff; --ring: hsla(33, 80%, 46%, 0.18); --error: hsl(8, 60%, 52%); --shadow: 0 1px 3px rgba(0, 0, 0, 0.06); }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1a1a1a; --card: #222224; --fg: #cccccc; --muted: #999999; --border: #333333; --input: #444444; --focus: #666666; --brand: hsl(39, 74%, 59%); --on-brand: #000000; --ring: hsla(39, 74%, 59%, 0.2); --error: hsl(8, 70%, 60%); --shadow: none; } }
   * { box-sizing: border-box; }
-  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--fg); font: 14px/1.5 Inter, -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; padding: 16px; }
-  .card { width: 100%; max-width: 340px; background: var(--card); border: 1px solid var(--border); border-radius: 8px; padding: 28px 24px; }
-  h1 { font-size: 18px; margin: 0 0 4px; font-weight: 600; }
-  p { margin: 0 0 20px; color: var(--muted); }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; background: var(--bg); color: var(--fg); font: 14px/1.5 Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; padding: max(24px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  .card { width: 100%; max-width: 360px; background: var(--card); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); padding: 32px 28px 28px; }
+  .logo { display: block; width: 56px; height: 56px; margin: 0 0 16px; }
+  h1 { font-size: 20px; line-height: 1.3; margin: 0 0 4px; font-weight: 600; }
+  p { margin: 0 0 24px; color: var(--muted); }
   label { display: block; font-size: 13px; margin-bottom: 6px; }
-  input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: inherit; font: inherit; }
-  input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
-  button { margin-top: 16px; width: 100%; padding: 8px 10px; border: 0; border-radius: 6px; background: var(--accent); color: var(--accent-fg); font: inherit; font-weight: 600; cursor: pointer; }
-  .error { color: var(--error); margin: 12px 0 0; font-size: 13px; }
+  .field { position: relative; }
+  input { width: 100%; height: 46px; padding: 0 48px 0 12px; border: 1px solid var(--input); border-radius: 6px; background: transparent; color: inherit; font: inherit; font-size: 16px; outline: none; -webkit-appearance: none; appearance: none; }
+  input:focus { border-color: var(--focus); box-shadow: 0 0 0 3px var(--ring); }
+  input[aria-invalid="true"] { border-color: var(--error); }
+  .reveal { position: absolute; top: 1px; right: 1px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; border: 0; padding: 0; background: transparent; color: var(--muted); cursor: pointer; border-radius: 6px; }
+  .reveal svg { width: 18px; height: 18px; }
+  .reveal .off, .reveal[aria-pressed="true"] .on { display: none; }
+  .reveal[aria-pressed="true"] .off { display: block; }
+  .submit { margin-top: 20px; width: 100%; height: 46px; border: 0; border-radius: 6px; background: var(--brand); color: var(--on-brand); font: inherit; font-size: 15px; font-weight: 600; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+  .submit:disabled { opacity: 0.7; cursor: default; }
+  .error { display: flex; gap: 6px; align-items: flex-start; color: var(--error); margin: 10px 0 0; font-size: 13px; }
+  .error svg { flex: none; width: 16px; height: 16px; margin-top: 2px; }
+  /* On a phone: no card, and high enough on the screen that the keyboard leaves the field and the button in view. */
+  @media (max-width: 480px) {
+    body { align-items: flex-start; padding-top: max(14vh, env(safe-area-inset-top)); background: var(--card); }
+    .card { border: 0; box-shadow: none; padding: 0 8px; }
+  }
 </style>
 </head>
 <body>${body}</body>
 </html>`;
 
+const ICON = {
+  eye: '<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff: '<path d="M10.7 5.1A10.7 10.7 0 0 1 21.9 11.7a1 1 0 0 1 0 .7 10.8 10.8 0 0 1-1.4 2.4"/><path d="M14.1 14.2a3 3 0 0 1-4.2-4.2"/><path d="M17.5 17.5A10.7 10.7 0 0 1 2.1 12.4a1 1 0 0 1 0-.7 10.8 10.8 0 0 1 4.4-5.3"/><path d="m2 2 20 20"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/>'
+};
+const svg = (name, cls = '') => `<svg class="${cls}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICON[name]}</svg>`;
+
 const loginPage = (error) => page('Bruno', `
 <form class="card" method="post" action="/bruno-web/login">
+  <img class="logo" src="/bruno-web/icons/icon-192.png" alt="" width="56" height="56">
   <h1>Bruno</h1>
   <p id="hint">Sign in to continue.</p>
   <label for="password" id="label">Password</label>
-  <input id="password" name="password" type="password" autocomplete="current-password" autofocus required>
-  <button type="submit" id="submit">Sign in</button>
-  ${error ? `<p class="error" role="alert">${escapeHtml(error)}</p>` : ''}
+  <div class="field">
+    <input id="password" name="password" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" autofocus required${error ? ' aria-invalid="true" aria-describedby="error"' : ''}>
+    <button type="button" class="reveal" id="reveal" aria-label="Show password" aria-pressed="false">${svg('eye', 'on')}${svg('eyeOff', 'off')}</button>
+  </div>
+  ${error ? `<div class="error" id="error" role="alert">${svg('alert')}<span id="error-text">${escapeHtml(error)}</span></div>` : ''}
+  <button type="submit" class="submit" id="submit">Sign in</button>
 </form>
 <script>
-  if (/^zh/i.test(navigator.language || '')) {
+  var zh = /^zh/i.test(navigator.language || '');
+  var text = {
+    show: zh ? '显示密码' : 'Show password',
+    hide: zh ? '隐藏密码' : 'Hide password',
+    busy: zh ? '正在登录…' : 'Signing in…'
+  };
+  if (zh) {
     document.documentElement.lang = 'zh-CN';
     document.getElementById('hint').textContent = '请登录后继续。';
     document.getElementById('label').textContent = '密码';
     document.getElementById('submit').textContent = '登录';
-    var e = document.querySelector('.error');
+    var e = document.getElementById('error-text');
     if (e) e.textContent = ({ 'Wrong password': '密码错误', 'Too many attempts, try again in 15 minutes': '尝试次数过多，请 15 分钟后再试', 'Sign-in failed, please try again': '登录失败，请重试' })[e.textContent] || e.textContent;
   }
+  var input = document.getElementById('password');
+  var reveal = document.getElementById('reveal');
+  reveal.setAttribute('aria-label', text.show);
+  reveal.addEventListener('click', function () {
+    var shown = input.type === 'password';
+    input.type = shown ? 'text' : 'password';
+    reveal.setAttribute('aria-pressed', String(shown));
+    reveal.setAttribute('aria-label', shown ? text.hide : text.show);
+    input.focus();
+  });
+  input.addEventListener('input', function () { input.removeAttribute('aria-invalid'); });
+  document.querySelector('form').addEventListener('submit', function () {
+    var b = document.getElementById('submit');
+    // Disabled after this event, so the form still submits; a second tap does nothing.
+    setTimeout(function () { b.disabled = true; b.textContent = text.busy; }, 0);
+  });
+  // Coming back with the browser's back button restores a disabled button.
+  window.addEventListener('pageshow', function () { var b = document.getElementById('submit'); b.disabled = false; b.textContent = zh ? '登录' : 'Sign in'; });
 </script>`);
 
 const CALLBACK_CSP = 'default-src \'none\'; style-src \'unsafe-inline\'; script-src \'unsafe-inline\'; connect-src \'self\'; frame-ancestors \'none\'; base-uri \'none\'';
